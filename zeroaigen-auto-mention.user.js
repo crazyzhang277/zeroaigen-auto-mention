@@ -1,7 +1,7 @@
 // ==UserScript==
-// @name         ZeroAIGen @主体标签自动关联工具
+// @name         ZeroAIGen @主体标签一键关联工具(极速版)
 // @namespace    http://tampermonkey.net/
-// @version      1.0.0
+// @version      2.0.0
 // @description  在零一/aigc.zeroaigen.cn 文本框中一键将 @图x 和 @音频x 自动关联为实体标签
 // @author       Antigravity
 // @match        *://aigc.zeroaigen.cn/*
@@ -11,6 +11,8 @@
 
 (function () {
   'use strict';
+
+  console.log('[ZeroAIGen Mention Userscript v2.0] 已成功加载！');
 
   // 1. 注入 CSS 样式
   const style = `
@@ -22,39 +24,49 @@
       background: linear-gradient(135deg, #10b981 0%, #059669 100%);
       color: #ffffff !important;
       border: none;
-      border-radius: 6px;
-      padding: 6px 14px;
+      border-radius: 20px;
+      padding: 8px 18px;
       font-size: 13px;
       font-weight: 600;
       cursor: pointer;
-      box-shadow: 0 2px 8px rgba(16, 185, 129, 0.25);
+      box-shadow: 0 4px 14px rgba(16, 185, 129, 0.4);
       transition: all 0.2s ease;
-      margin-left: 8px;
       user-select: none;
-      z-index: 100;
+      z-index: 999999;
     }
     .zero-auto-mention-btn:hover {
       background: linear-gradient(135deg, #059669 0%, #047857 100%);
-      transform: translateY(-1px);
-      box-shadow: 0 4px 12px rgba(16, 185, 129, 0.35);
+      transform: translateY(-2px);
+      box-shadow: 0 6px 18px rgba(16, 185, 129, 0.55);
     }
     .zero-auto-mention-btn:disabled {
       opacity: 0.6;
       cursor: not-allowed;
       transform: none;
     }
+
+    /* 右下角固定悬浮按钮 */
+    #zero-fixed-mention-btn {
+      position: fixed;
+      bottom: 28px;
+      right: 28px;
+      padding: 10px 20px;
+      font-size: 14px;
+    }
+
     .zero-mention-toast {
       position: fixed;
       top: 24px;
       right: 24px;
-      background: #1f2937;
-      color: #f9fafb;
-      padding: 12px 20px;
+      background: #111827;
+      color: #10b981;
+      border: 1px solid #059669;
+      padding: 12px 22px;
       border-radius: 8px;
       font-size: 14px;
-      font-weight: 500;
-      box-shadow: 0 10px 25px rgba(0,0,0,0.3);
-      z-index: 999999;
+      font-weight: 600;
+      box-shadow: 0 10px 25px rgba(0,0,0,0.5);
+      z-index: 9999999;
       animation: zeroToastFade 2.5s forwards;
     }
     @keyframes zeroToastFade {
@@ -73,7 +85,6 @@
     document.head.appendChild(s);
   }
 
-  // 2. 弹窗提示 Toast Helper
   function showToast(msg) {
     const toast = document.createElement('div');
     toast.className = 'zero-mention-toast';
@@ -82,64 +93,54 @@
     setTimeout(() => toast.remove(), 2500);
   }
 
-  // 3. 动态挂载【⚡ 一键关联 @标签】按钮
-  function mountButton() {
-    if (document.getElementById('zero-auto-mention-btn')) return;
-
-    // 寻找包含“匹配参考主体”文本的工具栏元素
-    const allElems = document.querySelectorAll('button, div, footer, span');
-    let targetParent = null;
-
-    for (const el of allElems) {
-      if (el.children.length === 0 && el.innerText && el.innerText.includes('匹配参考主体')) {
-        targetParent = el.closest('div') || el.parentElement;
-        break;
-      }
-    }
-
-    // 备选容错：挂载到文本框父元素附近
-    if (!targetParent) {
-      const editor = document.querySelector('[contenteditable="true"], textarea');
-      if (editor) {
-        targetParent = editor.parentElement;
-      }
-    }
-
-    if (targetParent && !document.getElementById('zero-auto-mention-btn')) {
-      const btn = document.createElement('button');
-      btn.id = 'zero-auto-mention-btn';
-      btn.className = 'zero-auto-mention-btn';
-      btn.type = 'button';
-      btn.innerHTML = '⚡ 一键关联 @标签';
-      btn.onclick = (e) => {
+  // 2. 挂载按钮（右下角悬浮按钮保障 + 文本框内工具栏挂载）
+  function mountButtons() {
+    // 右下角全局悬浮按钮
+    if (!document.getElementById('zero-fixed-mention-btn')) {
+      const fixedBtn = document.createElement('button');
+      fixedBtn.id = 'zero-fixed-mention-btn';
+      fixedBtn.className = 'zero-auto-mention-btn';
+      fixedBtn.type = 'button';
+      fixedBtn.innerHTML = '⚡ 一键关联 @标签';
+      fixedBtn.onclick = (e) => {
         e.preventDefault();
-        e.stopPropagation();
-        processAllMentions();
+        runAutoMentionTurbo();
       };
-      targetParent.appendChild(btn);
+      document.body.appendChild(fixedBtn);
+    }
+
+    // 文本框工具栏按钮
+    if (!document.getElementById('zero-auto-mention-btn')) {
+      const allElems = document.querySelectorAll('button, div, footer, span');
+      let targetParent = null;
+
+      for (const el of allElems) {
+        if (el.children.length === 0 && el.innerText && el.innerText.trim() === '匹配参考主体') {
+          targetParent = el.closest('div') || el.parentElement;
+          break;
+        }
+      }
+
+      if (targetParent) {
+        const toolbarBtn = document.createElement('button');
+        toolbarBtn.id = 'zero-auto-mention-btn';
+        toolbarBtn.className = 'zero-auto-mention-btn';
+        toolbarBtn.type = 'button';
+        toolbarBtn.style.margin = '0 8px';
+        toolbarBtn.innerHTML = '⚡ 一键关联 @标签';
+        toolbarBtn.onclick = (e) => {
+          e.preventDefault();
+          runAutoMentionTurbo();
+        };
+        targetParent.appendChild(toolbarBtn);
+      }
     }
   }
 
-  // 4. 键盘事件派发辅助函数
-  function dispatchKeyEvent(target, type, key, code, keyCode) {
-    const event = new KeyboardEvent(type, {
-      key: key,
-      code: code,
-      keyCode: keyCode,
-      which: keyCode,
-      bubbles: true,
-      cancelable: true,
-    });
-    target.dispatchEvent(event);
-  }
-
-  function sleep(ms) {
-    return new Promise((resolve) => setTimeout(resolve, ms));
-  }
-
-  // 5. 核心处理逻辑：正则扫描未转换的 @图x / @音频x 并模拟 Enter
-  async function processAllMentions() {
-    const btn = document.getElementById('zero-auto-mention-btn');
+  // 3. 验证通过的极速全量转换核心算法
+  async function runAutoMentionTurbo() {
+    const btn1 = document.getElementById('zero-auto-mention-btn');
+    const btn2 = document.getElementById('zero-fixed-mention-btn');
     const editor = document.querySelector('[contenteditable="true"]') || document.querySelector('textarea');
 
     if (!editor) {
@@ -147,56 +148,86 @@
       return;
     }
 
-    if (btn) {
-      btn.disabled = true;
-      btn.innerText = '🔄 正在关联中...';
-    }
+    [btn1, btn2].forEach((btn) => {
+      if (btn) {
+        btn.disabled = true;
+        btn.innerText = '🔄 正在关联中...';
+      }
+    });
+
+    let totalProcessed = 0;
+    const maxLoops = 60;
+    const evEnter = new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', keyCode: 13, bubbles: true });
 
     try {
-      const pattern = /(?:@|＠)(图\d+|音频\d+)/g;
-      let text = editor.isContentEditable ? editor.innerText : editor.value;
-      let matches = Array.from(text.matchAll(pattern));
+      for (let i = 0; i < maxLoops; i++) {
+        const walker = document.createTreeWalker(editor, NodeFilter.SHOW_TEXT, null, false);
+        let targetNode = null;
+        let targetMatch = null;
+        let node;
 
-      if (matches.length === 0) {
-        showToast('ℹ️ 未检测到未关联的 @图x 或 @音频x 标签');
-        return;
+        while ((node = walker.nextNode())) {
+          const val = node.nodeValue || '';
+          const m = /(?:@|＠)(图\d+|音频\d+)/.exec(val);
+          if (m) {
+            targetNode = node;
+            targetMatch = m;
+            break;
+          }
+        }
+
+        if (!targetNode || !targetMatch) break;
+
+        const matchText = targetMatch[0];
+        const matchIndex = targetMatch.index;
+
+        if (matchIndex + matchText.length > targetNode.nodeValue.length) continue;
+
+        try {
+          const range = document.createRange();
+          const sel = window.getSelection();
+          range.setStart(targetNode, matchIndex);
+          range.setEnd(targetNode, matchIndex + matchText.length);
+          sel.removeAllRanges();
+          sel.addRange(range);
+
+          editor.focus();
+
+          document.execCommand('insertText', false, matchText.slice(0, -1));
+          await new Promise((r) => setTimeout(r, 15));
+
+          document.execCommand('insertText', false, matchText.slice(-1));
+          await new Promise((r) => setTimeout(r, 25));
+
+          editor.dispatchEvent(evEnter);
+          await new Promise((r) => setTimeout(r, 35));
+
+          totalProcessed++;
+        } catch (err) {
+          await new Promise((r) => setTimeout(r, 20));
+        }
       }
 
-      let count = 0;
-
-      for (const match of matches) {
-        const fullTag = match[0];
-        editor.focus();
-
-        // 模拟退格并补全最后一个字符，唤起下拉弹窗
-        dispatchKeyEvent(editor, 'keydown', 'Backspace', 'Backspace', 8);
-        await sleep(50);
-
-        document.execCommand('insertText', false, fullTag.slice(-1));
-        await sleep(100);
-
-        // 派发 Enter 键事件确认选单项
-        dispatchKeyEvent(editor, 'keydown', 'Enter', 'Enter', 13);
-        dispatchKeyEvent(editor, 'keyup', 'Enter', 'Enter', 13);
-        await sleep(150);
-
-        count++;
+      if (totalProcessed > 0) {
+        showToast(`✅ 极速关联完成！共转换 ${totalProcessed} 个标签`);
+      } else {
+        showToast('ℹ️ 文本框中未发现未关联的 @ 标签');
       }
-
-      showToast(`✅ 已处理 ${count} 个主体标签关联！`);
     } catch (err) {
       console.error('[ZeroAIGen Mention Error]', err);
-      showToast('⚠️ 处理过程中出现异常');
+      showToast('⚠️ 处理出错');
     } finally {
-      if (btn) {
-        btn.disabled = false;
-        btn.innerText = '⚡ 一键关联 @标签';
-      }
+      [btn1, btn2].forEach((btn) => {
+        if (btn) {
+          btn.disabled = false;
+          btn.innerText = '⚡ 一键关联 @标签';
+        }
+      });
     }
   }
 
-  // 监听 SPA 页面动态渲染 DOM
-  const observer = new MutationObserver(() => mountButton());
+  // 监听 SPA DOM 渲染挂载按钮
+  const observer = new MutationObserver(() => mountButtons());
   observer.observe(document.body, { childList: true, subtree: true });
-  mountButton();
+  mountButtons();
 })();
