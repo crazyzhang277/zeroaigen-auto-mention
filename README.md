@@ -1,27 +1,69 @@
-# ZeroAIGen @主体标签自动关联油猴脚本
+# ZeroAIGen @主体标签智能关联油猴脚本
 
-专门为 **[aigc.zeroaigen.cn](https://aigc.zeroaigen.cn)** AI 视频提示词编辑器打造的油猴扩展脚本。
+[![Version](https://img.shields.io/badge/version-4.9.0-10b981.svg)](./zeroaigen-auto-mention.user.js)
+[![License](https://img.shields.io/badge/license-MIT-blue.svg)](./LICENSE)
+[![Target](https://img.shields.io/badge/target-aigc.zeroaigen.cn-059669.svg)](https://aigc.zeroaigen.cn)
+
+专为 **[零一 AIGC 平台 (aigc.zeroaigen.cn)](https://aigc.zeroaigen.cn)** AI 视频创作打造的高能油猴扩展脚本。解决长篇提示词中 `@图1`、`@图6`、`@音频1` 等主体标签无法自动关联成富文本预览卡片（绿标）的痛点。
 
 ---
 
-## 💡 背景与功能
-在粘贴长篇提示词时，文本中的 `@图1`、`@图6`、`@音频1` 等引用默认只是纯文本，无法自动变成带图文预览的实体标签（绿标）。
-本脚本会在文本框下方自动添加一个 **`⚡ 一键关联 @标签`** 按钮。点击后即可一键自动识别并批量回车转换所有主体标签！
+## ⚡ 核心功能亮点
+
+### 1. 🚀 单次点击，100% 一气呵成连续全量转换
+- **零断点**：打破中途退出阀门限制，只需点击一次 `⚡ 一键关联 @标签` 按钮，脚本会在 2~3 秒内将文本框中几十个标签流水线式连续转换完毕。
+- **绝对免多次点击**：100% 自动完成，绝不需要反复点击。
+
+### 2. 🎨 双色素材库实时可视化面板
+- 🟩 **绿色胶囊（已上传素材）**：实时展示顶部已检索到的素材卡片（如 `@图1`、`@图2`、`@音频1`），代表可正常关联。
+- 🟧 **橙色胶囊（缺失素材警示）**：实时展示提示词中出现但素材库尚未上传的编号（如 `@图5`、`@图6`），代表将**保留原样不替换**，防止误联。
+
+### 3. 🛸 暗黑玻璃拟态悬浮控制面板（双向自由拖拽）
+- **独立悬浮 UI**：采用现代暗黑玻璃拟态风格（Dark Glassmorphism），悬浮在网页之上，绝不破坏原网页 DOM 结构。
+- **双向自由拖拽**：主控制面板与最小化后的 `⚡` 球形图标均支持全屏任意拖拽摆放。
+- **智能点击区分**：拖拽小球时仅移动位置，单击小球时立即平滑展开控制面板。
+
+### 4. 🎯 `type=VIDEO` 专效智能模式隔离
+- **精准专效激活**：仅在 URL 中包含 `type=VIDEO` 模式时自动激活悬浮窗。
+- **无感隐形**：当切换至 `type=IMAGE` 或其他非视频模式时，控制面板与浮球自动完全隐藏，绝不上屏干扰。
+- **SPA 单页跟随**：支持无刷新 URL 模式切换，实时跟随模式显隐。
+
+### 5. 🛡️ 游标数量验证防卡死引擎
+- **克服弹窗遮挡**：针对 Slate.js 富文本编辑器，采用 `ArrowDown` 高亮 + `Enter` 触发 + 物理 DOM 点击 triple-guarantee。
+- **数学级防死循环**：采用基于游标的数量减少验证机制（`skipValidIndex`），发生网页小卡顿时自动推进游标，保证 100% 遍历且绝对不会卡死网页。
 
 ---
 
 ## 🛠️ 安装与使用步骤
 
-### 步骤 1：安装 Tampermonkey 插件
-如果你的浏览器尚未安装 Tampermonkey（油猴），请先前往官网或浏览器扩展商店安装：
-- [Chrome / Edge 扩展商店搜索 Tampermonkey](https://chrome.google.com/webstore/detail/tampermonkey/dhdgffkkebhmkfjojejmpbldmpobfkfo)
+### 步骤 1：安装 Tampermonkey (油猴) 扩展
+如果你的浏览器尚未安装油猴插件，请先选择对应的浏览器扩展商店进行安装：
+- [Chrome Web Store - Tampermonkey](https://chrome.google.com/webstore/detail/dhdgffkkebhmkfjojejmpbldmpobfkfo)
+- [Edge 扩展商店 - Tampermonkey](https://microsoftedge.microsoft.com/addons/detail/iikflimngbkmflgliblahdmobdkoocik)
 
-### 步骤 2：添加脚本
-1. 点击浏览器右上方 Tampermonkey 图标 -> 选择 **“添加新脚本”**。
-2. 将文件 [zeroaigen-auto-mention.user.js](./zeroaigen-auto-mention.user.js) 中的所有内容全选复制。
-3. 粘贴到油猴编辑器中，按 `Ctrl + S`（或点击左上角文件 -> 保存）。
+### 步骤 2：添加并保存脚本源码
+1. 点击浏览器右上角 Tampermonkey 图标 -> 选择 **“添加新脚本”**。
+2. 打开本仓库中的脚本文件：[**zeroaigen-auto-mention.user.js**](./zeroaigen-auto-mention.user.js)。
+3. 全选复制其中的全部代码，粘贴覆盖到油猴编辑器中。
+4. 按 `Ctrl + S` （或点击左上角 `文件 -> 保存`）。
 
-### 步骤 3：开启体验
-1. 打开或刷新目标网页：`https://aigc.zeroaigen.cn/dashboard/universal?projectId=1365&type=VIDEO`
-2. 将带有 `@图x` 或 `@音频x` 的文本粘贴进提示词文本框。
-3. 点击文本框左下角的 **`⚡ 一键关联 @标签`** 按钮，脚本将自动完成回车转换！
+### 步骤 3：开始体验
+1. 访问零一 AIGC 的任意视频创作页面（如 `https://aigc.zeroaigen.cn/dashboard/universal?projectId=xxx&type=VIDEO`）。
+2. 在右侧便能看到悬浮的 **`⚡ @标签智能关联助手`** 控制面板。
+3. 粘贴长篇带有 `@图x` 或 `@音频x` 的提示词后，点击 **`⚡ 一键关联 @标签`** 即可瞬间完成批量全量关联！
+
+---
+
+## 📖 核心规则说明
+
+| 规则类型 | 说明与行为 |
+| :--- | :--- |
+| **已上传素材转换** | 若 `@图1` 已在页面顶部上传，脚本将其自动触发转换成绿色的可视化卡片标签。 |
+| **未上传素材拦截** | 若 `@图5` 未在页面顶部上传，脚本自动拦截，**保留原样文本不替换**，防止错挂素材。 |
+| **多用户 / 多项目** | 采用 `*://*.zeroaigen.cn/*` 全域名匹配，支持任意账号、任意 `projectId`。 |
+
+---
+
+## 📄 开源协议
+
+本项目基于 [MIT License](./LICENSE) 开源。
