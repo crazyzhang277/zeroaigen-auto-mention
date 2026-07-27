@@ -1,8 +1,8 @@
 // ==UserScript==
-// @name         ZeroAIGen @主体标签一键关联工具(DOM顶层重叠与捕获拖拽破局版)
+// @name         ZeroAIGen @主体标签一键关联工具(放大预览按钮禁用保护版)
 // @namespace    http://tampermonkey.net/
-// @version      5.4.0
-// @description  在零一 AIGC 网页上采用 DOM 顶层动态提升与 Window Capture 捕获拖拽，彻底解决全屏 Modal 遮挡无法拖动问题
+// @version      5.5.0
+// @description  在零一 AIGC 网页上全屏放大预览视频时自动禁用关联按钮防止误触闪烁，在创作编辑页自动解锁
 // @author       Antigravity
 // @match        *://aigc.zeroaigen.cn/*
 // @match        *://*.zeroaigen.cn/*
@@ -14,14 +14,33 @@
 (function () {
   'use strict';
 
-  console.log('[ZeroAIGen Floating Widget v5.4.0] DOM顶层重叠与捕获拖拽破局版已加载！');
+  console.log('[ZeroAIGen Floating Widget v5.5.0] 放大预览按钮禁用保护版已加载！');
 
   // 0. 判断当前页面 URL 是否属于 type=VIDEO 模式
   function isVideoMode() {
     return /[?&]type=VIDEO\b/i.test(window.location.href);
   }
 
-  // 1. CSS 样式 (使用 isolation: isolate 与 pointer-events: auto 强制置顶)
+  // 获取当前可见且可编辑的提示词输入框
+  function getActiveEditor() {
+    const editors = document.querySelectorAll('[contenteditable="true"], textarea');
+    for (let i = 0; i < editors.length; i++) {
+      const ed = editors[i];
+      if (ed.offsetWidth > 0 && ed.offsetHeight > 0 && !ed.hasAttribute('disabled') && ed.getAttribute('aria-disabled') !== 'true') {
+        return ed;
+      }
+    }
+    return null;
+  }
+
+  // 判断用户是否正在点开放大预览视频 Modal 弹窗
+  function isVideoPreviewModalOpen() {
+    const modalOrDrawer = document.querySelector('.ant-modal, .ant-drawer, [class*="modal"], [class*="drawer"], [class*="fullscreen"], [class*="viewer"]');
+    const hasVideoPlayer = document.querySelector('video') !== null;
+    return (modalOrDrawer !== null && hasVideoPlayer);
+  }
+
+  // 1. CSS 样式
   const style = `
     #zero-floating-widget {
       position: fixed;
@@ -208,10 +227,10 @@
 
     .zero-widget-action-btn:disabled {
       opacity: 0.5;
-      cursor: not-allowed;
-      transform: none;
-      background: #374151;
-      box-shadow: none;
+      cursor: not-allowed !important;
+      transform: none !important;
+      background: #374151 !important;
+      box-shadow: none !important;
     }
 
     .zero-widget-status {
@@ -302,7 +321,7 @@
   // 2. 检索页面顶部【已上传素材栏】
   function getOnlyUploadedAssets() {
     const availableTags = new Set();
-    const editor = document.querySelector('[contenteditable="true"]') || document.querySelector('textarea');
+    const editor = getActiveEditor();
     const widget = document.getElementById('zero-floating-widget');
 
     const allElems = document.body.querySelectorAll('div, span, p, b, label, strong');
@@ -328,12 +347,12 @@
 
   // 3. 统计可转换标签及未上传标签
   function detectUnlinkedMentions() {
-    const editor = document.querySelector('[contenteditable="true"]') || document.querySelector('textarea');
+    const editor = getActiveEditor();
     const uploadedAssets = getOnlyUploadedAssets();
     const hasAssets = uploadedAssets.size > 0;
 
     if (!editor) {
-      return { totalUnlinked: 0, validCount: 0, invalidCount: 0, hasAssets, uploadedAssets, missingTags: new Set() };
+      return { totalUnlinked: 0, validCount: 0, invalidCount: 0, hasAssets: false, uploadedAssets: new Set(), missingTags: new Set() };
     }
 
     const walker = document.createTreeWalker(editor, NodeFilter.SHOW_TEXT, null, false);
@@ -382,6 +401,21 @@
 
     if (!countValueEl) return;
 
+    // 核心安全保护：当用户处于视频放大预览 Modal 弹窗页面时，强制禁用“一键关联”按钮，防止误触闪烁！
+    if (isVideoPreviewModalOpen()) {
+      if (runBtn) {
+        runBtn.disabled = true;
+        runBtn.innerHTML = '<span>🚫</span> 预览模式 (禁止关联)';
+        runBtn.title = '当前处于视频放大预览弹窗，无法关联标签';
+      }
+      if (statusTextEl) {
+        statusTextEl.innerText = '⚠️ 处于放大预览模式，已禁用关联按钮';
+      }
+      countValueEl.innerText = '预览模式 (禁用)';
+      countValueEl.className = 'zero-detection-value warn';
+      return;
+    }
+
     const { totalUnlinked, validCount, invalidCount, hasAssets, uploadedAssets, missingTags } = detectUnlinkedMentions();
 
     if (assetsTagsEl) {
@@ -407,6 +441,13 @@
       } else {
         missingTagsBarEl.style.display = 'none';
       }
+    }
+
+    // 恢复正常编辑态按钮启用状态
+    if (runBtn && runBtn.innerText.includes('预览模式')) {
+      runBtn.disabled = false;
+      runBtn.innerHTML = '<span>⚡</span> <span>一键关联 @标签</span>';
+      runBtn.title = '';
     }
 
     if (!hasAssets) {
@@ -500,7 +541,6 @@
     if (!widget) {
       createFloatingWidget();
     } else {
-      // 保持 DOM 物理层级始终处于 document.body 的最后一位（避免被 React Modal Portal 遮挡）
       if (document.body.lastElementChild !== widget && document.body.lastElementChild !== minBadge) {
         document.body.appendChild(widget);
         if (minBadge) document.body.appendChild(minBadge);
@@ -584,7 +624,7 @@
     updateDetectionUI();
   }
 
-  // 7. 终极 DOM 重叠提升 + Window Capture 拖拽引擎 (彻底击穿一切 React Modal 遮罩)
+  // 7. 终极 DOM 重叠提升 + Window Capture 拖拽引擎
   function makeUltimateTopDraggable(elmnt, dragHandle) {
     let startX = 0, startY = 0, initialLeft = 0, initialTop = 0;
 
@@ -594,7 +634,6 @@
       e.preventDefault();
       e.stopPropagation();
 
-      // 核心突破 1：按下的瞬间，把面板强制重新 append 到 body 最后，使其渲染层级绝对处于顶峰！
       document.body.appendChild(elmnt);
 
       startX = e.clientX;
@@ -632,7 +671,6 @@
         window.removeEventListener('pointercancel', onPointerUp, true);
       };
 
-      // 核心突破 2：在全局 Window 对象的捕获阶段监听（true），拦截任何 Modal 遮罩层的事件干扰！
       window.addEventListener('pointermove', onPointerMove, true);
       window.addEventListener('pointerup', onPointerUp, true);
       window.addEventListener('pointercancel', onPointerUp, true);
@@ -648,7 +686,6 @@
       e.preventDefault();
       e.stopPropagation();
 
-      // 强制置顶
       document.body.appendChild(elmnt);
 
       isMoved = false;
@@ -702,12 +739,17 @@
     }, true);
   }
 
-  // 9. 一键全量转换
+  // 9. 一键全量转换 (在放大预览弹窗下阻断执行)
   async function runAutoMentionStream() {
     const runBtn = document.getElementById('zero-widget-action-btn');
     const statusText = document.getElementById('zero-widget-status');
-    const editor = document.querySelector('[contenteditable="true"]') || document.querySelector('textarea');
 
+    if (isVideoPreviewModalOpen()) {
+      showToast('⚠️ 当前处于放大预览模式，无法在预览界面执行关联！');
+      return;
+    }
+
+    const editor = getActiveEditor();
     if (!editor) {
       showToast('❌ 未找到可编辑的提示词文本框！');
       return;
