@@ -1,8 +1,8 @@
 // ==UserScript==
-// @name         ZeroAIGen @主体标签一键关联工具(通用全项目全域名支持版)
+// @name         ZeroAIGen @主体标签一键关联工具(仅type=VIDEO专效版)
 // @namespace    http://tampermonkey.net/
-// @version      4.8.0
-// @description  在零一 AIGC 网页上(支持任意用户/任意项目 projectId/任意页面/所有子域名)自动精准关联素材标签
+// @version      4.9.0
+// @description  在零一 AIGC 网页上仅在 type=VIDEO 模式下生效自动精准关联素材标签，其它模式自动隐形
 // @author       Antigravity
 // @match        *://aigc.zeroaigen.cn/*
 // @match        *://*.zeroaigen.cn/*
@@ -14,7 +14,12 @@
 (function () {
   'use strict';
 
-  console.log('[ZeroAIGen Floating Widget v4.8.0] 通用全项目全域名支持版已加载！');
+  console.log('[ZeroAIGen Floating Widget v4.9.0] 仅 type=VIDEO 专效版已加载！');
+
+  // 0. 判断当前页面 URL 是否属于 type=VIDEO 模式
+  function isVideoMode() {
+    return /[?&]type=VIDEO\b/i.test(window.location.href);
+  }
 
   // 1. CSS 样式
   const style = `
@@ -457,7 +462,33 @@
     return false;
   }
 
-  // 6. UI 面板与拖拽逻辑
+  // 6. UI 面板创建与 type=VIDEO 模式管控
+  function checkModeAndUpdateUI() {
+    const widget = document.getElementById('zero-floating-widget');
+    const minBadge = document.getElementById('zero-minimized-badge');
+    const isVideo = isVideoMode();
+
+    if (!isVideo) {
+      // 绝对隔离：非 type=VIDEO 模式下隐藏控件，不占据画面
+      if (widget) widget.style.display = 'none';
+      if (minBadge) minBadge.style.display = 'none';
+      return;
+    }
+
+    // 处于 type=VIDEO 模式
+    if (!widget) {
+      createFloatingWidget();
+    } else {
+      if (minBadge && minBadge.style.display === 'flex') {
+        widget.style.display = 'none';
+      } else {
+        widget.style.display = 'block';
+      }
+    }
+
+    updateDetectionUI();
+  }
+
   function createFloatingWidget() {
     if (document.getElementById('zero-floating-widget')) return;
 
@@ -732,7 +763,6 @@
     }
   }
 
-  // 初始化
-  createFloatingWidget();
-  setInterval(() => updateDetectionUI(), 1000);
+  // 初始化与 URL 实时检测（支持单页应用无刷新切换模式）
+  setInterval(checkModeAndUpdateUI, 1000);
 })();
