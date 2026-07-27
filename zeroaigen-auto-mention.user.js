@@ -1,8 +1,8 @@
 // ==UserScript==
-// @name         ZeroAIGen @主体标签一键关联工具(放大预览按钮禁用保护版)
+// @name         ZeroAIGen @主体标签一键关联工具(遮罩精确判空与编辑态双重精准匹配版)
 // @namespace    http://tampermonkey.net/
-// @version      5.5.0
-// @description  在零一 AIGC 网页上全屏放大预览视频时自动禁用关联按钮防止误触闪烁，在创作编辑页自动解锁
+// @version      5.6.0
+// @description  在零一 AIGC 网页上精准区分正常创作编辑页面与全屏大图预览 Modal，在创作页正常解锁启用，仅在真实弹窗遮罩下禁用保护
 // @author       Antigravity
 // @match        *://aigc.zeroaigen.cn/*
 // @match        *://*.zeroaigen.cn/*
@@ -14,7 +14,7 @@
 (function () {
   'use strict';
 
-  console.log('[ZeroAIGen Floating Widget v5.5.0] 放大预览按钮禁用保护版已加载！');
+  console.log('[ZeroAIGen Floating Widget v5.6.0] 遮罩精准判空与编辑态双重精准匹配版已加载！');
 
   // 0. 判断当前页面 URL 是否属于 type=VIDEO 模式
   function isVideoMode() {
@@ -33,11 +33,20 @@
     return null;
   }
 
-  // 判断用户是否正在点开放大预览视频 Modal 弹窗
+  // 精准判断用户是否真正弹出了全屏大图/视频预览 Modal 遮罩层
   function isVideoPreviewModalOpen() {
-    const modalOrDrawer = document.querySelector('.ant-modal, .ant-drawer, [class*="modal"], [class*="drawer"], [class*="fullscreen"], [class*="viewer"]');
-    const hasVideoPlayer = document.querySelector('video') !== null;
-    return (modalOrDrawer !== null && hasVideoPlayer);
+    // 只有当页面真正弹出了可视、透明度大于 0 的遮罩层 (Mask) 时，才认定为处于大图预览弹窗状态
+    const masks = document.querySelectorAll('.ant-modal-mask, .ant-drawer-mask, [class*="modal-mask"], [class*="drawer-mask"], [class*="preview-mask"]');
+    for (let i = 0; i < masks.length; i++) {
+      const m = masks[i];
+      if (m.offsetWidth > 0 && m.offsetHeight > 0) {
+        const st = window.getComputedStyle(m);
+        if (st.display !== 'none' && st.visibility !== 'hidden' && parseFloat(st.opacity || '1') > 0.2) {
+          return true;
+        }
+      }
+    }
+    return false;
   }
 
   // 1. CSS 样式
@@ -352,7 +361,7 @@
     const hasAssets = uploadedAssets.size > 0;
 
     if (!editor) {
-      return { totalUnlinked: 0, validCount: 0, invalidCount: 0, hasAssets: false, uploadedAssets: new Set(), missingTags: new Set() };
+      return { totalUnlinked: 0, validCount: 0, invalidCount: 0, hasAssets, uploadedAssets, missingTags: new Set() };
     }
 
     const walker = document.createTreeWalker(editor, NodeFilter.SHOW_TEXT, null, false);
@@ -401,8 +410,10 @@
 
     if (!countValueEl) return;
 
-    // 核心安全保护：当用户处于视频放大预览 Modal 弹窗页面时，强制禁用“一键关联”按钮，防止误触闪烁！
-    if (isVideoPreviewModalOpen()) {
+    // 严谨判断：只有当真正弹出了可全屏覆盖的预览 Mask 遮罩时，才判定为放大预览弹窗
+    const isModalOpen = isVideoPreviewModalOpen();
+
+    if (isModalOpen) {
       if (runBtn) {
         runBtn.disabled = true;
         runBtn.innerHTML = '<span>🚫</span> 预览模式 (禁止关联)';
@@ -416,6 +427,7 @@
       return;
     }
 
+    // 正常创作编辑页面逻辑
     const { totalUnlinked, validCount, invalidCount, hasAssets, uploadedAssets, missingTags } = detectUnlinkedMentions();
 
     if (assetsTagsEl) {
@@ -443,8 +455,8 @@
       }
     }
 
-    // 恢复正常编辑态按钮启用状态
-    if (runBtn && runBtn.innerText.includes('预览模式')) {
+    // 正常创作页面：恢复按钮高亮与可点击
+    if (runBtn) {
       runBtn.disabled = false;
       runBtn.innerHTML = '<span>⚡</span> <span>一键关联 @标签</span>';
       runBtn.title = '';
@@ -739,7 +751,7 @@
     }, true);
   }
 
-  // 9. 一键全量转换 (在放大预览弹窗下阻断执行)
+  // 9. 一键全量转换
   async function runAutoMentionStream() {
     const runBtn = document.getElementById('zero-widget-action-btn');
     const statusText = document.getElementById('zero-widget-status');
