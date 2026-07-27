@@ -1,8 +1,8 @@
 // ==UserScript==
-// @name         ZeroAIGen @主体标签一键关联工具(已上传素材实时可视化面板版)
+// @name         ZeroAIGen @主体标签一键关联工具(已上传与未上传素材双向可视化版)
 // @namespace    http://tampermonkey.net/
-// @version      4.5.0
-// @description  在零一/aigc.zeroaigen.cn 网页悬浮窗上实时展示已解析到的素材标签(@图x / @音频x)，一目了然
+// @version      4.6.0
+// @description  在零一/aigc.zeroaigen.cn 网页悬浮窗上同时可视化展示【已上传素材(绿色)】与【未上传素材(橙色保留项)】
 // @author       Antigravity
 // @match        *://aigc.zeroaigen.cn/*
 // @grant        GM_addStyle
@@ -12,7 +12,7 @@
 (function () {
   'use strict';
 
-  console.log('[ZeroAIGen Floating Widget v4.5.0] 已上传素材可视化面板版已加载！');
+  console.log('[ZeroAIGen Floating Widget v4.6.0] 已上传与未上传双向可视化版已加载！');
 
   // 1. CSS 样式
   const style = `
@@ -20,7 +20,7 @@
       position: fixed;
       top: 120px;
       right: 40px;
-      width: 285px;
+      width: 295px;
       background: rgba(17, 24, 39, 0.94);
       backdrop-filter: blur(14px);
       -webkit-backdrop-filter: blur(14px);
@@ -87,7 +87,7 @@
       gap: 10px;
     }
 
-    .zero-widget-detection-bar, .zero-widget-assets-bar {
+    .zero-widget-assets-bar, .zero-widget-missing-bar, .zero-widget-detection-bar {
       display: flex;
       flex-direction: column;
       gap: 6px;
@@ -104,9 +104,13 @@
       justify-content: space-between;
     }
 
-    .zero-detection-label, .zero-assets-label {
+    .zero-detection-label, .zero-assets-label, .zero-missing-label {
       color: #9ca3af;
       font-size: 11px;
+    }
+
+    .zero-missing-label {
+      color: #f59e0b;
     }
 
     .zero-detection-value {
@@ -122,7 +126,7 @@
       color: #f59e0b;
     }
 
-    .zero-assets-tags-wrapper {
+    .zero-assets-tags-wrapper, .zero-missing-tags-wrapper {
       display: flex;
       flex-wrap: wrap;
       gap: 4px;
@@ -131,10 +135,23 @@
       margin-top: 2px;
     }
 
+    /* 已上传素材绿胶囊 */
     .zero-asset-pill {
       background: rgba(16, 185, 129, 0.18);
       border: 1px solid rgba(16, 185, 129, 0.45);
       color: #34d399;
+      padding: 2px 7px;
+      border-radius: 5px;
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 0.2px;
+    }
+
+    /* 未上传素材橙胶囊 */
+    .zero-missing-pill {
+      background: rgba(245, 158, 11, 0.18);
+      border: 1px solid rgba(245, 158, 11, 0.45);
+      color: #fbbf24;
       padding: 2px 7px;
       border-radius: 5px;
       font-size: 11px;
@@ -280,19 +297,20 @@
     return availableTags;
   }
 
-  // 3. 统计可转换标签
+  // 3. 统计可转换标签及未上传标签
   function detectUnlinkedMentions() {
     const editor = document.querySelector('[contenteditable="true"]') || document.querySelector('textarea');
     const uploadedAssets = getOnlyUploadedAssets();
     const hasAssets = uploadedAssets.size > 0;
 
     if (!editor) {
-      return { totalUnlinked: 0, validCount: 0, invalidCount: 0, hasAssets, uploadedAssets };
+      return { totalUnlinked: 0, validCount: 0, invalidCount: 0, hasAssets, uploadedAssets, missingTags: new Set() };
     }
 
     const walker = document.createTreeWalker(editor, NodeFilter.SHOW_TEXT, null, false);
     const validItems = [];
     const invalidItems = [];
+    const missingTags = new Set();
 
     let node;
     while ((node = walker.nextNode())) {
@@ -306,6 +324,7 @@
           validItems.push(fullTag);
         } else {
           invalidItems.push(fullTag);
+          missingTags.add(cleanTag);
         }
       }
     }
@@ -317,7 +336,8 @@
       validItems,
       invalidItems,
       hasAssets,
-      uploadedAssets
+      uploadedAssets,
+      missingTags
     };
   }
 
@@ -327,12 +347,14 @@
     const statusTextEl = document.getElementById('zero-widget-status');
     const runBtn = document.getElementById('zero-widget-action-btn');
     const assetsTagsEl = document.getElementById('zero-assets-tags-wrapper');
+    const missingTagsBarEl = document.getElementById('zero-missing-bar');
+    const missingTagsWrapperEl = document.getElementById('zero-missing-tags-wrapper');
 
     if (!countValueEl) return;
 
-    const { totalUnlinked, validCount, invalidCount, hasAssets, uploadedAssets } = detectUnlinkedMentions();
+    const { totalUnlinked, validCount, invalidCount, hasAssets, uploadedAssets, missingTags } = detectUnlinkedMentions();
 
-    // 更新展示已识别到的素材标签（如 @图1, @图2, @音频1 等）
+    // 1. 展示【已上传素材胶囊（绿色）】
     if (assetsTagsEl) {
       if (uploadedAssets && uploadedAssets.size > 0) {
         const sorted = Array.from(uploadedAssets).sort((a, b) =>
@@ -341,6 +363,21 @@
         assetsTagsEl.innerHTML = sorted.map((t) => `<span class="zero-asset-pill">@${t}</span>`).join('');
       } else {
         assetsTagsEl.innerHTML = `<span class="zero-asset-pill-empty">未检测到已上传素材</span>`;
+      }
+    }
+
+    // 2. 展示【未上传素材胶囊（橙色 warning）】
+    if (missingTagsBarEl && missingTagsWrapperEl) {
+      if (missingTags && missingTags.size > 0) {
+        missingTagsBarEl.style.display = 'flex';
+        const sortedMissing = Array.from(missingTags).sort((a, b) =>
+          a.localeCompare(b, 'zh-CN', { numeric: true })
+        );
+        missingTagsWrapperEl.innerHTML = sortedMissing
+          .map((t) => `<span class="zero-missing-pill">@${t}</span>`)
+          .join('');
+      } else {
+        missingTagsBarEl.style.display = 'none';
       }
     }
 
@@ -436,10 +473,14 @@
       </div>
       <div class="zero-widget-body">
         <div class="zero-widget-assets-bar">
-          <span class="zero-assets-label">已检测到的素材库：</span>
+          <span class="zero-assets-label">已检测到的素材库 (可关联)：</span>
           <div class="zero-assets-tags-wrapper" id="zero-assets-tags-wrapper">
             <span class="zero-asset-pill-empty">扫描中...</span>
           </div>
+        </div>
+        <div class="zero-widget-missing-bar" id="zero-missing-bar" style="display: none;">
+          <span class="zero-missing-label">⚠️ 缺失素材 (保留原样不替换)：</span>
+          <div class="zero-missing-tags-wrapper" id="zero-missing-tags-wrapper"></div>
         </div>
         <div class="zero-widget-detection-bar">
           <div class="zero-widget-row">
