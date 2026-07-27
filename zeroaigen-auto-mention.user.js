@@ -1,8 +1,8 @@
 // ==UserScript==
-// @name         ZeroAIGen @主体标签一键关联工具(7.0.0 完整精准识别与全量转换终极版)
+// @name         ZeroAIGen @主体标签一键关联工具(7.1.0 油猴 Window 代理沙箱修复版)
 // @namespace    http://tampermonkey.net/
-// @version      7.0.0
-// @description  完美兼容带副标题素材识别(@图1 太极)，采用@+Tag重打触发与Slate物理事件精准关联
+// @version      7.1.0
+// @description  修正 Tampermonkey 沙箱下 MouseEvent view 视图代理类型报错，彻底解决一键关联报错问题
 // @author       Antigravity
 // @match        *://aigc.zeroaigen.cn/*
 // @match        *://*.zeroaigen.cn/*
@@ -14,7 +14,7 @@
 (function () {
   'use strict';
 
-  console.log('[ZeroAIGen Floating Widget v7.0.0] 完整精准识别与全量转换终极版已加载！');
+  console.log('[ZeroAIGen Floating Widget v7.1.0] 油猴 Window 代理沙箱修复版已加载！');
 
   // 0. 判断当前页面 URL 是否属于 type=VIDEO 模式
   function isVideoMode() {
@@ -318,7 +318,7 @@
 
   const TAG_REGEX = /(?:@|＠)(图\d+|音频\d+|视频\d+|镜头\d+|角色\d+|主体\d+|素材\d+)/g;
 
-  // 2. 检索页面顶部【已上传素材栏】(完美兼容含副标题的素材卡片如 "@图1 太极")
+  // 2. 检索页面顶部【已上传素材栏】(精准兼容含副标题的素材卡片如 "@图1 太极")
   function getOnlyUploadedAssets() {
     const availableTags = new Set();
     const editor = getActiveEditor();
@@ -469,7 +469,7 @@
     }
   }
 
-  // 5. 模拟 Mention 下拉弹窗确认与 Slate 物理 mousedown 事件派发
+  // 5. 模拟 Mention 下拉弹窗确认与 Slate 物理 mousedown 事件派发 (纯净沙箱规范)
   async function confirmCandidatePopover(editor, cleanTag) {
     await sleep(70);
 
@@ -483,20 +483,23 @@
         for (let j = 0; j < items.length; j++) {
           const item = items[j];
           if (item.innerText && item.innerText.includes(cleanTag)) {
-            const opts = { bubbles: true, cancelable: true, view: window };
-            item.dispatchEvent(new MouseEvent('mousedown', opts));
-            item.dispatchEvent(new MouseEvent('mouseup', opts));
-            item.dispatchEvent(new MouseEvent('click', opts));
+            // 油猴沙箱修复：去除 view: window，使用纯净的 MouseEvent 初始化字典
+            const mouseOpts = { bubbles: true, cancelable: true };
+            item.dispatchEvent(new MouseEvent('mousedown', mouseOpts));
+            item.dispatchEvent(new MouseEvent('mouseup', mouseOpts));
+            item.dispatchEvent(new MouseEvent('click', mouseOpts));
+            if (typeof item.click === 'function') item.click();
             await sleep(60);
             return true;
           }
         }
         const active = dd.querySelector('[class*="active"], [class*="selected"], [aria-selected="true"]');
         if (active) {
-          const opts = { bubbles: true, cancelable: true, view: window };
-          active.dispatchEvent(new MouseEvent('mousedown', opts));
-          active.dispatchEvent(new MouseEvent('mouseup', opts));
-          active.dispatchEvent(new MouseEvent('click', opts));
+          const mouseOpts = { bubbles: true, cancelable: true };
+          active.dispatchEvent(new MouseEvent('mousedown', mouseOpts));
+          active.dispatchEvent(new MouseEvent('mouseup', mouseOpts));
+          active.dispatchEvent(new MouseEvent('click', mouseOpts));
+          if (typeof active.click === 'function') active.click();
           await sleep(60);
           return true;
         }
@@ -728,7 +731,7 @@
     }, true);
   }
 
-  // 9. 一键全量转换 (重新触发 @+Tag 关联)
+  // 9. 一键全量转换
   async function runAutoMentionStream() {
     const runBtn = document.getElementById('zero-widget-action-btn');
     const statusText = document.getElementById('zero-widget-status');
@@ -823,14 +826,12 @@
 
           editor.focus();
 
-          // 重新打字：先删掉原文本，再打字 @，触发 Slate Mention 插件弹出
           document.execCommand('insertText', false, '@');
           await sleep(40);
 
           document.execCommand('insertText', false, cleanTag);
           await sleep(80);
 
-          // 触发选中 Slate 候选列表项
           await confirmCandidatePopover(editor, cleanTag);
           await sleep(60);
 
