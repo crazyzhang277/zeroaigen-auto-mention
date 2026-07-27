@@ -1,8 +1,8 @@
 // ==UserScript==
-// @name         ZeroAIGen @主体标签一键关联工具(文本框隔离防误判纯净版)
+// @name         ZeroAIGen @主体标签一键关联工具(单素材顺畅跳过极速版)
 // @namespace    http://tampermonkey.net/
-// @version      3.6.0
-// @description  在零一/aigc.zeroaigen.cn 网页上精准隔离文本框内容与素材库，彻底解决未上传素材时的误判问题，真正实现连续流畅全量转换
+// @version      3.7.0
+// @description  在零一/aigc.zeroaigen.cn 网页上精准跳过素材库缺失标签(如只有图1时安全跳过图6)，全自动顺畅关联所有有效标签
 // @author       Antigravity
 // @match        *://aigc.zeroaigen.cn/*
 // @grant        GM_addStyle
@@ -12,7 +12,7 @@
 (function () {
   'use strict';
 
-  console.log('[ZeroAIGen Floating Widget v3.6.0] 文本框隔离纯净版已加载！');
+  console.log('[ZeroAIGen Floating Widget v3.7.0] 缺失素材安全跳过版已加载！');
 
   // 1. CSS 样式
   const style = `
@@ -20,7 +20,7 @@
       position: fixed;
       top: 120px;
       right: 40px;
-      width: 270px;
+      width: 275px;
       background: rgba(17, 24, 39, 0.94);
       backdrop-filter: blur(14px);
       -webkit-backdrop-filter: blur(14px);
@@ -128,7 +128,7 @@
     }
 
     .zero-detection-value.warn {
-      color: #ef4444;
+      color: #f59e0b;
     }
 
     .zero-widget-action-btn {
@@ -219,7 +219,7 @@
   if (typeof GM_addStyle !== 'undefined') {
     GM_addStyle(style);
   } else {
-    const s = document.createStyleElement ? document.createStyleElement() : document.createElement('style');
+    const s = document.createElement('style');
     s.innerHTML = style;
     document.head.appendChild(s);
   }
@@ -234,21 +234,19 @@
 
   const TAG_REGEX = /(?:@|＠)(图\d+|音频\d+|视频\d+|镜头\d+|角色\d+|主体\d+|素材\d+)/g;
 
-  // 2. 精准隔离检测：只扫描【文本框外部】真正上传的图片/音频素材卡片，绝对排除文本框内部的长段落文本！
+  // 2. 精准隔离检测：排除文本框，仅检索已上传的素材库缩略图卡片
   function getOnlyUploadedAssets() {
     const availableTags = new Set();
     const editor = document.querySelector('[contenteditable="true"]') || document.querySelector('textarea');
     const allElems = document.querySelectorAll('div, span, p, b');
 
     for (const el of allElems) {
-      // 核心修复点：如果当前 DOM 节点属于【提示词文本框内部】，坚决排除！不进行素材扫描！
       if (editor && (editor === el || editor.contains(el))) {
         continue;
       }
 
       if (el.children.length === 0 && el.innerText) {
         const text = el.innerText.trim();
-        // 精确匹配独立素材卡片的角标标签（如 "图1", "图2", "音频1"）
         if (/^(图\d+|音频\d+|视频\d+|镜头\d+|角色\d+|主体\d+|素材\d+)$/.test(text)) {
           availableTags.add(text);
         }
@@ -258,7 +256,7 @@
     return availableTags;
   }
 
-  // 3. 统计文本框未转换项并进行独立隔离匹配
+  // 3. 统计文本框未转换项并进行精确对比
   function detectUnlinkedMentions() {
     const editor = document.querySelector('[contenteditable="true"]') || document.querySelector('textarea');
     const uploadedAssets = getOnlyUploadedAssets();
@@ -281,7 +279,6 @@
         const fullTag = m[0];
         const cleanTag = m[1];
 
-        // 只有当文本框外部确实上传了匹配名称的素材卡片时，才算作有效项
         if (!strictCheck || (hasAssets && uploadedAssets.has(cleanTag))) {
           validItems.push(fullTag);
         } else {
@@ -310,9 +307,8 @@
 
     if (!countValueEl) return;
 
-    const { totalUnlinked, validCount, invalidCount, hasAssets } = detectUnlinkedMentions();
+    const { totalUnlinked, validCount, invalidCount, hasAssets, invalidItems } = detectUnlinkedMentions();
 
-    // 当页面顶部未上传素材（uploadedAssets 为空）
     if (strictCheck && !hasAssets) {
       if (totalUnlinked > 0) {
         countValueEl.innerText = `未上传素材 (0/${totalUnlinked}可转换)`;
@@ -331,16 +327,20 @@
     }
 
     if (validCount > 0) {
-      countValueEl.innerText = `${validCount} 个待关联`;
+      countValueEl.innerText = `${validCount} 个可关联`;
       countValueEl.className = 'zero-detection-value';
+      if (invalidCount > 0) {
+        countValueEl.innerText += ` (${invalidCount}个缺失素材)`;
+        countValueEl.className = 'zero-detection-value warn';
+      }
       if (statusTextEl && (!runBtn || !runBtn.disabled)) {
-        statusTextEl.innerText = `点击按钮一键连续转换 ${validCount} 个标签`;
+        statusTextEl.innerText = `发现 ${validCount} 个可转换标签 (${invalidCount}个缺失素材将自动跳过)`;
       }
     } else if (invalidCount > 0 && strictCheck) {
-      countValueEl.innerText = `0 可关联 (${invalidCount}个超界)`;
+      countValueEl.innerText = `0 可关联 (${invalidCount}个缺失素材)`;
       countValueEl.className = 'zero-detection-value warn';
       if (statusTextEl && (!runBtn || !runBtn.disabled)) {
-        statusTextEl.innerText = '提示：标签编号超出当前已上传素材范围';
+        statusTextEl.innerText = `素材未在页面上传: ${invalidItems.slice(0, 2).join(', ')}`;
       }
     } else {
       countValueEl.innerText = '0 个 (已全部关联)';
@@ -466,7 +466,7 @@
     }
   }
 
-  // 7. 一键连续全量流式转换算法（隔离判断）
+  // 7. 一键连续全量流式转换算法（含单素材缺失动态跳过防护）
   async function runAutoMentionStream() {
     const runBtn = document.getElementById('zero-widget-action-btn');
     const statusText = document.getElementById('zero-widget-status');
@@ -478,7 +478,7 @@
       return;
     }
 
-    const { hasAssets, validCount } = detectUnlinkedMentions();
+    const { hasAssets, validCount, uploadedAssets } = detectUnlinkedMentions();
 
     if (strictCheck && !hasAssets) {
       showToast('⚠️ 未在页面顶部找到上传的素材！(取消勾选“严格校验已上传素材”可强行转换)');
@@ -487,7 +487,7 @@
     }
 
     if (validCount === 0) {
-      showToast('ℹ️ 当前文本框中没有可关联的 @标签！');
+      showToast('ℹ️ 当前文本框中没有可以关联的有效 @标签！');
       if (statusText) statusText.innerText = '无需关联处理';
       return;
     }
@@ -498,11 +498,13 @@
     }
 
     let totalProcessed = 0;
+    let skippedCount = 0;
     let consecutiveFailures = 0;
     const maxTotalItems = 100;
+    const failedTagsSet = new Set(); // 失败或缺失素材集合
 
     try {
-      while (totalProcessed < maxTotalItems && consecutiveFailures < 3) {
+      while (totalProcessed < maxTotalItems && consecutiveFailures < 5) {
         const walker = document.createTreeWalker(editor, NodeFilter.SHOW_TEXT, null, false);
         let targetNode = null;
         let targetMatch = null;
@@ -512,12 +514,31 @@
           const val = node.nodeValue || '';
           const m = /(?:@|＠)(图\d+|音频\d+|视频\d+|镜头\d+|角色\d+|主体\d+|素材\d+)/.exec(val);
           if (m) {
+            const fullTag = m[0];
+            const cleanTag = m[1];
+
+            // 核心修复点 1：如果在“严格模式”下，页面素材库只有【图1】，遇到【图6】时立即跳过！
+            if (strictCheck && uploadedAssets.size > 0 && !uploadedAssets.has(cleanTag)) {
+              if (!failedTagsSet.has(fullTag)) {
+                console.warn(`[ZeroAIGen] 素材库缺失 ${fullTag} (只上传了 ${Array.from(uploadedAssets).join(', ')}), 自动跳过！`);
+                failedTagsSet.add(fullTag);
+                skippedCount++;
+              }
+              continue; // 关键：跳过图6，继续向后找下一个标签！
+            }
+
+            // 核心修复点 2：已经失败过的标签跳过
+            if (failedTagsSet.has(fullTag)) {
+              continue;
+            }
+
             targetNode = node;
             targetMatch = m;
             break;
           }
         }
 
+        // 如果找不到任何【有效且未跳过】的 @ 标签，说明可以转换的已经全部完成！
         if (!targetNode || !targetMatch) {
           break;
         }
@@ -527,6 +548,7 @@
         const matchIndex = targetMatch.index;
 
         if (matchIndex + matchText.length > targetNode.nodeValue.length) {
+          failedTagsSet.add(matchText);
           consecutiveFailures++;
           continue;
         }
@@ -554,14 +576,19 @@
           consecutiveFailures = 0;
           if (statusText) statusText.innerText = `已连续转换 ${totalProcessed} 个标签...`;
         } catch (err) {
-          console.error('单项转换失败，重试...', err);
+          console.error('单项转换失败，标记跳过...', err);
+          failedTagsSet.add(matchText);
           consecutiveFailures++;
           await new Promise((r) => setTimeout(r, 30));
         }
       }
 
-      showToast(`✅ 连续流畅关联完成！本次共转换 ${totalProcessed} 个标签`);
-      if (statusText) statusText.innerText = `成功转换 ${totalProcessed} 个标签！`;
+      let msg = `✅ 关联完成！成功转换 ${totalProcessed} 个标签`;
+      if (skippedCount > 0) {
+        msg += ` (跳过 ${skippedCount} 个未在素材库中的标签)`;
+      }
+      showToast(msg);
+      if (statusText) statusText.innerText = msg;
     } catch (err) {
       console.error('[ZeroAIGen Mention Error]', err);
       showToast('⚠️ 处理出错');
@@ -574,7 +601,7 @@
     }
   }
 
-  // 初始化
+  // 初始化并开启状态轮询
   createFloatingWidget();
   setInterval(() => updateDetectionUI(), 1000);
 })();
