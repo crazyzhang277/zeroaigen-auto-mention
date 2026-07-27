@@ -1,8 +1,8 @@
 // ==UserScript==
-// @name         ZeroAIGen @主体标签一键关联工具(60fps极速防卡顿与零延迟拖拽版)
+// @name         ZeroAIGen @主体标签一键关联工具(4.9基线回退与视频详情弹窗精准隐形版)
 // @namespace    http://tampermonkey.net/
-// @version      5.1.0
-// @description  在零一 AIGC 网页上采用 DOM 范围收拢、防抖节流与拖拽锁定机制，彻底解决主线程卡顿与拖拽迟钝问题
+// @version      5.2.0
+// @description  在零一 AIGC 网页上仅在 type=VIDEO 且在创作编辑态下生效。当用户点开视频大图/详情弹窗时自动完全隐形，关闭弹窗自动恢复
 // @author       Antigravity
 // @match        *://aigc.zeroaigen.cn/*
 // @match        *://*.zeroaigen.cn/*
@@ -14,18 +14,14 @@
 (function () {
   'use strict';
 
-  console.log('[ZeroAIGen Floating Widget v5.1.0] 60fps极速防卡顿版已加载！');
-
-  let isDraggingWidget = false; // 拖拽防护锁：拖拽期间全面停止 DOM 统计，保证 60fps 顺畅
-  let cachedUploadedAssets = new Set();
-  let lastAssetScanTime = 0;
+  console.log('[ZeroAIGen Floating Widget v5.2.0] 视频详情弹窗精准隐形版已加载！');
 
   // 0. 判断当前页面 URL 是否属于 type=VIDEO 模式
   function isVideoMode() {
     return /[?&]type=VIDEO\b/i.test(window.location.href);
   }
 
-  // 获取页面上当前可见且可编辑的提示词编辑器
+  // 获取当前可见且可编辑的提示词输入框
   function getActiveEditor() {
     const editors = document.querySelectorAll('[contenteditable="true"], textarea');
     for (let i = 0; i < editors.length; i++) {
@@ -37,7 +33,15 @@
     return null;
   }
 
-  // 1. CSS 样式 (z-index 提升至 99999999)
+  // 判断用户是否正在点开视频大图/生成详情预览 Modal 弹窗
+  function isVideoPreviewModalOpen() {
+    // 如果页面上出现了大图 Modal / Drawer / 遮罩层，且内部包含视频播放器，说明用户处于视频详情查看态
+    const modalOrDrawer = document.querySelector('.ant-modal, .ant-drawer, [class*="modal"], [class*="drawer"], [class*="fullscreen"], [class*="viewer"]');
+    const hasVideoPlayer = document.querySelector('video') !== null;
+    return (modalOrDrawer !== null && hasVideoPlayer);
+  }
+
+  // 1. CSS 样式 (z-index 设为最高级的 99999999)
   const style = `
     #zero-floating-widget {
       position: fixed;
@@ -164,6 +168,7 @@
       margin-top: 2px;
     }
 
+    /* 已上传素材绿胶囊 */
     .zero-asset-pill {
       background: rgba(16, 185, 129, 0.18);
       border: 1px solid rgba(16, 185, 129, 0.45);
@@ -175,6 +180,7 @@
       letter-spacing: 0.2px;
     }
 
+    /* 未上传素材橙胶囊 */
     .zero-missing-pill {
       background: rgba(245, 158, 11, 0.18);
       border: 1px solid rgba(245, 158, 11, 0.45);
@@ -307,33 +313,23 @@
 
   const TAG_REGEX = /(?:@|＠)(图\d+|音频\d+|视频\d+|镜头\d+|角色\d+|主体\d+|素材\d+)/g;
 
-  // 2. 极速范围收拢与 2.5 秒防抖节流的素材检索（彻底清除全页 DOM 扫描造成的线程卡顿）
+  // 2. 严格检索页面顶部【已上传素材栏】
   function getOnlyUploadedAssets() {
-    const now = Date.now();
-
-    // 节流机制：2.5 秒内若已有结果，直接返回缓存，绝对不上屏重复全量查询
-    if (now - lastAssetScanTime < 2500 && cachedUploadedAssets.size > 0) {
-      return cachedUploadedAssets;
-    }
-
-    lastAssetScanTime = now;
     const availableTags = new Set();
     const editor = getActiveEditor();
     const widget = document.getElementById('zero-floating-widget');
 
     if (!editor) return availableTags;
 
-    // 范围缩小：只在文本框所在的容器卡片区域内查找素材缩略图，避免检索全页数万节点
-    const promptContainer = editor.closest('div[class*="card"], div[class*="box"], div[class*="form"], div[class*="container"], div[class*="panel"]') || document.body;
-    const candidates = promptContainer.querySelectorAll('div, span, label, p');
+    const allElems = document.body.querySelectorAll('div, span, p, b, label, strong');
 
-    for (let i = 0; i < candidates.length; i++) {
-      const el = candidates[i];
-      if (editor.contains(el) || (widget && widget.contains(el))) continue;
+    for (let i = 0; i < allElems.length; i++) {
+      const el = allElems[i];
+      if (editor && (editor === el || editor.contains(el))) continue;
+      if (widget && (widget === el || widget.contains(el))) continue;
 
       if (el.children.length === 0 && el.innerText) {
         const text = el.innerText.trim();
-        // 快速剪枝：长文本直接跳过
         if (text.length <= 12) {
           const m = /^(?:@|＠)?(图\d+|音频\d+|视频\d+|镜头\d+|角色\d+|主体\d+|素材\d+)$/.exec(text);
           if (m) {
@@ -343,7 +339,6 @@
       }
     }
 
-    cachedUploadedAssets = availableTags;
     return availableTags;
   }
 
@@ -394,8 +389,6 @@
 
   // 4. 更新检测 UI 界面
   function updateDetectionUI() {
-    if (isDraggingWidget) return; // 正在拖拽时，完全暂停 UI 刷新，确保拖拽 60fps 顺畅！
-
     const countValueEl = document.getElementById('zero-detection-count');
     const statusTextEl = document.getElementById('zero-widget-status');
     const runBtn = document.getElementById('zero-widget-action-btn');
@@ -508,21 +501,22 @@
     return false;
   }
 
-  // 6. UI 面板创建与 type=VIDEO + 可编辑框 智能显隐管控
+  // 6. UI 面板创建与 type=VIDEO + 可编辑框 + 视频详情弹窗精准隐形管控
   function checkModeAndUpdateUI() {
-    if (isDraggingWidget) return;
-
     const widget = document.getElementById('zero-floating-widget');
     const minBadge = document.getElementById('zero-minimized-badge');
     const isVideo = isVideoMode();
     const activeEditor = getActiveEditor();
+    const isPreviewOpen = isVideoPreviewModalOpen();
 
-    if (!isVideo || !activeEditor) {
+    // 核心隔离逻辑：如果不是 VIDEO 模式、没有可编辑提示词框、或者点开了视频大图详情弹窗 -> 绝对隐形！
+    if (!isVideo || !activeEditor || isPreviewOpen) {
       if (widget) widget.style.display = 'none';
       if (minBadge) minBadge.style.display = 'none';
       return;
     }
 
+    // 在处于提示词编辑创作态时正常显示
     if (!widget) {
       createFloatingWidget();
     } else {
@@ -593,9 +587,9 @@
       minBadge.style.display = 'flex';
     };
 
-    makeUniversalDraggable(widget, document.getElementById('zero-widget-drag-handle'));
+    makePointerCaptureDraggable(widget, document.getElementById('zero-widget-drag-handle'));
 
-    makeUniversalDraggableBadge(minBadge, () => {
+    makePointerCaptureDraggableBadge(minBadge, () => {
       minBadge.style.display = 'none';
       widget.style.display = 'block';
       updateDetectionUI();
@@ -604,18 +598,15 @@
     updateDetectionUI();
   }
 
-  // 7. 60fps 原生流畅拖拽引擎 (拖拽期间暂停 UI 刷新)
-  function makeUniversalDraggable(elmnt, dragHandle) {
+  // 7. PointerCapture 顶级捕获拖拽引擎 (绝不脱手卡死)
+  function makePointerCaptureDraggable(elmnt, dragHandle) {
     let startX = 0, startY = 0, initialLeft = 0, initialTop = 0;
 
-    dragHandle.addEventListener('pointerdown', onPointerDown, { passive: false });
-
-    function onPointerDown(e) {
+    dragHandle.addEventListener('pointerdown', (e) => {
       if (e.target.closest('.zero-widget-controls')) return;
 
       e.preventDefault();
       e.stopPropagation();
-      isDraggingWidget = true; // 开启拖拽锁，冻结轮询
 
       startX = e.clientX;
       startY = e.clientY;
@@ -628,53 +619,44 @@
       elmnt.style.top = initialTop + 'px';
       elmnt.style.right = 'auto';
 
-      dragHandle.setPointerCapture(e.pointerId);
+      try {
+        dragHandle.setPointerCapture(e.pointerId);
+      } catch (_) {}
+
+      const onPointerMove = (ev) => {
+        ev.preventDefault();
+        ev.stopPropagation();
+        const dx = ev.clientX - startX;
+        const dy = ev.clientY - startY;
+        elmnt.style.left = (initialLeft + dx) + 'px';
+        elmnt.style.top = (initialTop + dy) + 'px';
+      };
+
+      const onPointerUp = (ev) => {
+        ev.preventDefault();
+        ev.stopPropagation();
+        try {
+          dragHandle.releasePointerCapture(ev.pointerId);
+        } catch (_) {}
+        dragHandle.removeEventListener('pointermove', onPointerMove);
+        dragHandle.removeEventListener('pointerup', onPointerUp);
+        dragHandle.removeEventListener('pointercancel', onPointerUp);
+      };
 
       dragHandle.addEventListener('pointermove', onPointerMove, { passive: false });
       dragHandle.addEventListener('pointerup', onPointerUp, { passive: false });
       dragHandle.addEventListener('pointercancel', onPointerUp, { passive: false });
-    }
-
-    function onPointerMove(e) {
-      e.preventDefault();
-      e.stopPropagation();
-
-      const dx = e.clientX - startX;
-      const dy = e.clientY - startY;
-
-      elmnt.style.left = (initialLeft + dx) + 'px';
-      elmnt.style.top = (initialTop + dy) + 'px';
-    }
-
-    function onPointerUp(e) {
-      e.preventDefault();
-      e.stopPropagation();
-
-      try {
-        dragHandle.releasePointerCapture(e.pointerId);
-      } catch (_) {}
-
-      dragHandle.removeEventListener('pointermove', onPointerMove);
-      dragHandle.removeEventListener('pointerup', onPointerUp);
-      dragHandle.removeEventListener('pointercancel', onPointerUp);
-
-      setTimeout(() => {
-        isDraggingWidget = false; // 解锁拖拽
-      }, 50);
-    }
+    }, { passive: false });
   }
 
-  // 8. 收起后球形按钮的 60fps 顺畅拖拽 + 点击判定
-  function makeUniversalDraggableBadge(elmnt, onClickCallback) {
+  // 8. 收起后球形按钮的 PointerCapture 顺畅拖拽 + 点击判定
+  function makePointerCaptureDraggableBadge(elmnt, onClickCallback) {
     let startX = 0, startY = 0, initialLeft = 0, initialTop = 0;
     let isMoved = false;
 
-    elmnt.addEventListener('pointerdown', onPointerDown, { passive: false });
-
-    function onPointerDown(e) {
+    elmnt.addEventListener('pointerdown', (e) => {
       e.preventDefault();
       e.stopPropagation();
-      isDraggingWidget = true;
 
       isMoved = false;
       startX = e.clientX;
@@ -688,51 +670,46 @@
       elmnt.style.top = initialTop + 'px';
       elmnt.style.right = 'auto';
 
-      elmnt.setPointerCapture(e.pointerId);
+      try {
+        elmnt.setPointerCapture(e.pointerId);
+      } catch (_) {}
+
+      const onPointerMove = (ev) => {
+        ev.preventDefault();
+        ev.stopPropagation();
+        const dx = ev.clientX - startX;
+        const dy = ev.clientY - startY;
+
+        if (Math.abs(dx) > 4 || Math.abs(dy) > 4) {
+          isMoved = true;
+        }
+
+        elmnt.style.left = (initialLeft + dx) + 'px';
+        elmnt.style.top = (initialTop + dy) + 'px';
+      };
+
+      const onPointerUp = (ev) => {
+        ev.preventDefault();
+        ev.stopPropagation();
+        try {
+          elmnt.releasePointerCapture(ev.pointerId);
+        } catch (_) {}
+        elmnt.removeEventListener('pointermove', onPointerMove);
+        elmnt.removeEventListener('pointerup', onPointerUp);
+        elmnt.removeEventListener('pointercancel', onPointerUp);
+
+        if (!isMoved) {
+          onClickCallback();
+        }
+      };
 
       elmnt.addEventListener('pointermove', onPointerMove, { passive: false });
       elmnt.addEventListener('pointerup', onPointerUp, { passive: false });
       elmnt.addEventListener('pointercancel', onPointerUp, { passive: false });
-    }
-
-    function onPointerMove(e) {
-      e.preventDefault();
-      e.stopPropagation();
-
-      const dx = e.clientX - startX;
-      const dy = e.clientY - startY;
-
-      if (Math.abs(dx) > 4 || Math.abs(dy) > 4) {
-        isMoved = true;
-      }
-
-      elmnt.style.left = (initialLeft + dx) + 'px';
-      elmnt.style.top = (initialTop + dy) + 'px';
-    }
-
-    function onPointerUp(e) {
-      e.preventDefault();
-      e.stopPropagation();
-
-      try {
-        elmnt.releasePointerCapture(e.pointerId);
-      } catch (_) {}
-
-      elmnt.removeEventListener('pointermove', onPointerMove);
-      elmnt.removeEventListener('pointerup', onPointerUp);
-      elmnt.removeEventListener('pointercancel', onPointerUp);
-
-      setTimeout(() => {
-        isDraggingWidget = false;
-      }, 50);
-
-      if (!isMoved) {
-        onClickCallback();
-      }
-    }
+    }, { passive: false });
   }
 
-  // 9. 一键全量转换 (带 200 次严格安全封顶防死循环)
+  // 9. 一键全量转换
   async function runAutoMentionStream() {
     const runBtn = document.getElementById('zero-widget-action-btn');
     const statusText = document.getElementById('zero-widget-status');
@@ -764,13 +741,9 @@
 
     let totalProcessed = 0;
     let skipValidIndex = 0;
-    let loopGuard = 0;
-    const maxLoopGuard = 200; // 封顶防护门
 
     try {
-      while (loopGuard < maxLoopGuard) {
-        loopGuard++;
-
+      while (true) {
         let preCheck = detectUnlinkedMentions();
         let preValidCount = preCheck.validCount;
 
@@ -869,6 +842,6 @@
     }
   }
 
-  // 1.5 秒低频轮询，性能消耗极小
-  setInterval(checkModeAndUpdateUI, 1500);
+  // 1 秒轻量检测（根据是否属于编辑态决定显隐）
+  setInterval(checkModeAndUpdateUI, 1000);
 })();
