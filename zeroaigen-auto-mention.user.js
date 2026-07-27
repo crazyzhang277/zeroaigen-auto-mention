@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         ZeroAIGen @主体标签一键关联工具(DOM顶层重叠与捕获拖拽破局版)
 // @namespace    http://tampermonkey.net/
-// @version      5.7.1
-// @description  在零一 AIGC 网页上采用 DOM 顶层动态提升与 Window Capture 捕获拖拽，彻底解决全屏 Modal 遮挡无法拖动问题，支持大图预览自动折叠与极速全量关联复查
+// @version      5.8.0
+// @description  在零一 AIGC 网页上采用 DOM 顶层动态提升与 Window Capture 捕获拖拽，彻底解决全屏 Modal 遮挡无法拖动问题，支持大图预览自动折叠与 GPU 硬件加速 60-144FPS 拖拽引擎
 // @author       Antigravity
 // @match        *://aigc.zeroaigen.cn/*
 // @match        *://*.zeroaigen.cn/*
@@ -14,7 +14,7 @@
 (function () {
   'use strict';
 
-  console.log('[ZeroAIGen Floating Widget v5.7.1] 极速高帧率响应 + 双倍关联效率版已加载！');
+  console.log('[ZeroAIGen Floating Widget v5.8.0] GPU 硬件加速 60-144FPS 极速丝滑拖拽引擎已加载！');
 
   // 0. 判断当前页面 URL 是否属于 type=VIDEO 模式
   function isVideoMode() {
@@ -52,6 +52,8 @@
       overflow: hidden;
       transition: box-shadow 0.2s ease;
       touch-action: none;
+      will-change: transform;
+      transform: translate3d(0, 0, 0);
     }
 
     #zero-floating-widget:hover {
@@ -249,8 +251,10 @@
       isolation: isolate !important;
       pointer-events: auto !important;
       user-select: none;
-      transition: transform 0.15s ease, box-shadow 0.2s ease;
+      transition: box-shadow 0.2s ease;
       touch-action: none;
+      will-change: transform;
+      transform: translate3d(0, 0, 0);
     }
 
     #zero-minimized-badge:active {
@@ -629,9 +633,11 @@
     updateDetectionUI();
   }
 
-  // 7. 终极 DOM 重叠提升 + Window Capture 拖拽引擎 (彻底击穿一切 React Modal 遮罩)
+  // 7. GPU 硬件加速 + requestAnimationFrame 60-144FPS 终极拖拽引擎
   function makeUltimateTopDraggable(elmnt, dragHandle) {
     let startX = 0, startY = 0, initialLeft = 0, initialTop = 0;
+    let currentDx = 0, currentDy = 0;
+    let rAfId = null;
 
     dragHandle.addEventListener('pointerdown', (e) => {
       if (e.target.closest('.zero-widget-controls')) return;
@@ -639,7 +645,6 @@
       e.preventDefault();
       e.stopPropagation();
 
-      // 核心突破 1：按下的瞬间，把面板强制重新 append 到 body 最后，使其渲染层级绝对处于顶峰！
       document.body.appendChild(elmnt);
 
       startX = e.clientX;
@@ -652,6 +657,7 @@
       elmnt.style.left = initialLeft + 'px';
       elmnt.style.top = initialTop + 'px';
       elmnt.style.right = 'auto';
+      elmnt.style.transition = 'none';
 
       try {
         dragHandle.setPointerCapture(e.pointerId);
@@ -660,40 +666,57 @@
       const onPointerMove = (ev) => {
         ev.preventDefault();
         ev.stopPropagation();
-        const dx = ev.clientX - startX;
-        const dy = ev.clientY - startY;
-        elmnt.style.left = (initialLeft + dx) + 'px';
-        elmnt.style.top = (initialTop + dy) + 'px';
+        currentDx = ev.clientX - startX;
+        currentDy = ev.clientY - startY;
+
+        if (!rAfId) {
+          rAfId = requestAnimationFrame(() => {
+            elmnt.style.transform = `translate3d(${currentDx}px, ${currentDy}px, 0)`;
+            rAfId = null;
+          });
+        }
       };
 
       const onPointerUp = (ev) => {
         ev.preventDefault();
         ev.stopPropagation();
+        if (rAfId) {
+          cancelAnimationFrame(rAfId);
+          rAfId = null;
+        }
         try {
           dragHandle.releasePointerCapture(ev.pointerId);
         } catch (_) {}
+
         window.removeEventListener('pointermove', onPointerMove, true);
         window.removeEventListener('pointerup', onPointerUp, true);
         window.removeEventListener('pointercancel', onPointerUp, true);
+
+        initialLeft = initialLeft + currentDx;
+        initialTop = initialTop + currentDy;
+        elmnt.style.left = initialLeft + 'px';
+        elmnt.style.top = initialTop + 'px';
+        elmnt.style.transform = 'translate3d(0, 0, 0)';
+        elmnt.style.transition = '';
       };
 
-      // 核心突破 2：在全局 Window 对象的捕获阶段监听（true），拦截任何 Modal 遮罩层的事件干扰！
       window.addEventListener('pointermove', onPointerMove, true);
       window.addEventListener('pointerup', onPointerUp, true);
       window.addEventListener('pointercancel', onPointerUp, true);
     }, true);
   }
 
-  // 8. 收起球形按钮的终极 DOM 重叠提升 + Window Capture 拖拽引擎
+  // 8. 收起球形按钮的 GPU 硬件加速 + requestAnimationFrame 拖拽引擎
   function makeUltimateTopDraggableBadge(elmnt, onClickCallback) {
     let startX = 0, startY = 0, initialLeft = 0, initialTop = 0;
+    let currentDx = 0, currentDy = 0;
     let isMoved = false;
+    let rAfId = null;
 
     elmnt.addEventListener('pointerdown', (e) => {
       e.preventDefault();
       e.stopPropagation();
 
-      // 强制置顶
       document.body.appendChild(elmnt);
 
       isMoved = false;
@@ -707,6 +730,7 @@
       elmnt.style.left = initialLeft + 'px';
       elmnt.style.top = initialTop + 'px';
       elmnt.style.right = 'auto';
+      elmnt.style.transition = 'none';
 
       try {
         elmnt.setPointerCapture(e.pointerId);
@@ -715,26 +739,42 @@
       const onPointerMove = (ev) => {
         ev.preventDefault();
         ev.stopPropagation();
-        const dx = ev.clientX - startX;
-        const dy = ev.clientY - startY;
+        currentDx = ev.clientX - startX;
+        currentDy = ev.clientY - startY;
 
-        if (Math.abs(dx) > 4 || Math.abs(dy) > 4) {
+        if (Math.abs(currentDx) > 4 || Math.abs(currentDy) > 4) {
           isMoved = true;
         }
 
-        elmnt.style.left = (initialLeft + dx) + 'px';
-        elmnt.style.top = (initialTop + dy) + 'px';
+        if (!rAfId) {
+          rAfId = requestAnimationFrame(() => {
+            elmnt.style.transform = `translate3d(${currentDx}px, ${currentDy}px, 0)`;
+            rAfId = null;
+          });
+        }
       };
 
       const onPointerUp = (ev) => {
         ev.preventDefault();
         ev.stopPropagation();
+        if (rAfId) {
+          cancelAnimationFrame(rAfId);
+          rAfId = null;
+        }
         try {
           elmnt.releasePointerCapture(ev.pointerId);
         } catch (_) {}
+
         window.removeEventListener('pointermove', onPointerMove, true);
-        window.removeEventListener('pointerup', onPointerUp, true);
-        window.removeEventListener('pointercancel', onPointerUp, true);
+        window.removeEventListener('pointerup', onPointerUp, { capture: true, once: true });
+        window.removeEventListener('pointercancel', onPointerUp, { capture: true, once: true });
+
+        initialLeft = initialLeft + currentDx;
+        initialTop = initialTop + currentDy;
+        elmnt.style.left = initialLeft + 'px';
+        elmnt.style.top = initialTop + 'px';
+        elmnt.style.transform = 'translate3d(0, 0, 0)';
+        elmnt.style.transition = '';
 
         if (!isMoved) {
           onClickCallback();
