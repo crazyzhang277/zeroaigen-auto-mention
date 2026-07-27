@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         ZeroAIGen @主体标签一键关联工具(DOM顶层重叠与捕获拖拽破局版)
 // @namespace    http://tampermonkey.net/
-// @version      5.5.1
-// @description  在零一 AIGC 网页上采用 DOM 顶层动态提升与 Window Capture 捕获拖拽，彻底解决全屏 Modal 遮挡无法拖动问题，并支持大图预览自动折叠与恢复
+// @version      5.6.0
+// @description  在零一 AIGC 网页上采用 DOM 顶层动态提升与 Window Capture 捕获拖拽，彻底解决全屏 Modal 遮挡无法拖动问题，支持大图预览自动折叠与转换完成二次复查校验
 // @author       Antigravity
 // @match        *://aigc.zeroaigen.cn/*
 // @match        *://*.zeroaigen.cn/*
@@ -14,7 +14,7 @@
 (function () {
   'use strict';
 
-  console.log('[ZeroAIGen Floating Widget v5.5.1] 大图/视频预览自动折叠与状态精准复位版已加载！');
+  console.log('[ZeroAIGen Floating Widget v5.6.0] 全量关联 + 二次复查校验终极版已加载！');
 
   // 0. 判断当前页面 URL 是否属于 type=VIDEO 模式
   function isVideoMode() {
@@ -870,8 +870,96 @@
         }
       }
 
+      // -------------------------------------------------------------
+      // 核心功能：全量转换完成后，触发二次扫描与复查补救机制 (Double-Check Pass)
+      // -------------------------------------------------------------
+      let retryCheck = detectUnlinkedMentions();
+
+      if (retryCheck.validCount > 0) {
+        if (statusText) statusText.innerText = `🔍 正在执行二次复查与遗漏关联 (剩余 ${retryCheck.validCount} 个)...`;
+        await sleep(100);
+
+        let retrySkipIndex = 0;
+        let retryProcessed = 0;
+
+        while (true) {
+          let preCheck = detectUnlinkedMentions();
+          if (preCheck.validCount === 0) break;
+
+          const walker = document.createTreeWalker(editor, NodeFilter.SHOW_TEXT, null, false);
+          let targetNode = null;
+          let targetMatch = null;
+          let node;
+          let currentValidIndex = 0;
+          let found = false;
+
+          while ((node = walker.nextNode())) {
+            const val = node.nodeValue || '';
+            const regex = /(?:@|＠)(图\d+|音频\d+|视频\d+|镜头\d+|角色\d+|主体\d+|素材\d+)/g;
+            let m;
+
+            while ((m = regex.exec(val)) !== null) {
+              const cleanTag = m[1];
+              if (uploadedAssets.size > 0 && !uploadedAssets.has(cleanTag)) {
+                continue;
+              }
+              if (currentValidIndex < retrySkipIndex) {
+                currentValidIndex++;
+                continue;
+              }
+              targetNode = node;
+              targetMatch = m;
+              found = true;
+              break;
+            }
+            if (found) break;
+          }
+
+          if (!targetNode || !targetMatch) break;
+
+          const matchText = targetMatch[0];
+          const cleanTag = targetMatch[1];
+          const matchIndex = targetMatch.index;
+
+          try {
+            const range = document.createRange();
+            const sel = window.getSelection();
+            range.setStart(targetNode, matchIndex);
+            range.setEnd(targetNode, matchIndex + matchText.length);
+            sel.removeAllRanges();
+            sel.addRange(range);
+
+            editor.focus();
+
+            document.execCommand('insertText', false, matchText.slice(0, -1));
+            await sleep(20);
+            document.execCommand('insertText', false, matchText.slice(-1));
+            await sleep(35);
+
+            await confirmCandidatePopover(editor, cleanTag);
+            await sleep(40);
+
+            let postCheck = detectUnlinkedMentions();
+            if (postCheck.validCount >= preCheck.validCount) {
+              retrySkipIndex++;
+            } else {
+              totalProcessed++;
+              retryProcessed++;
+              if (statusText) statusText.innerText = `复查转换中：已补救关联 ${retryProcessed} 个标签...`;
+            }
+          } catch (err) {
+            retrySkipIndex++;
+          }
+        }
+      }
+
       const finalCheck = detectUnlinkedMentions();
-      let msg = `✅ 一键全量关联完成！共转换 ${totalProcessed} 个标签`;
+      let msg = '';
+      if (finalCheck.validCount === 0) {
+        msg = `✅ 全量关联与复查完成！共成功转换 ${totalProcessed} 个标签`;
+      } else {
+        msg = `⚠️ 关联复查完成：共转换 ${totalProcessed} 个标签 (尚存 ${finalCheck.validCount} 个未关联)`;
+      }
 
       if (finalCheck.invalidCount > 0) {
         msg += ` (${finalCheck.invalidCount} 个未上传项保持原样)`;
