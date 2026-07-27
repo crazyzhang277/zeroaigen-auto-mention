@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ZeroAIGen @主体标签一键关联工具(DOM顶层重叠与捕获拖拽破局版)
 // @namespace    http://tampermonkey.net/
-// @version      5.7.0
+// @version      5.7.1
 // @description  在零一 AIGC 网页上采用 DOM 顶层动态提升与 Window Capture 捕获拖拽，彻底解决全屏 Modal 遮挡无法拖动问题，支持大图预览自动折叠与极速全量关联复查
 // @author       Antigravity
 // @match        *://aigc.zeroaigen.cn/*
@@ -14,7 +14,7 @@
 (function () {
   'use strict';
 
-  console.log('[ZeroAIGen Floating Widget v5.7.0] 极速双倍转换 + 全量复查校验版已加载！');
+  console.log('[ZeroAIGen Floating Widget v5.7.1] 极速高帧率响应 + 双倍关联效率版已加载！');
 
   // 0. 判断当前页面 URL 是否属于 type=VIDEO 模式
   function isVideoMode() {
@@ -980,6 +980,6 @@
     }
   }
 
-  // 1 秒轮询
-  setInterval(checkModeAndUpdateUI, 1000);
+  // 350ms 极速轮询检测
+  setInterval(checkModeAndUpdateUI, 350);
 })();
