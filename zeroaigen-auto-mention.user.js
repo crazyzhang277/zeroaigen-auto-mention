@@ -1,8 +1,8 @@
 // ==UserScript==
-// @name         ZeroAIGen @主体标签一键关联工具(资产校验防卡死版)
+// @name         ZeroAIGen @主体标签一键关联工具(空资产防死锁极速版)
 // @namespace    http://tampermonkey.net/
-// @version      3.2.0
-// @description  在零一/aigc.zeroaigen.cn 网页上自动校对已上传素材库，安全忽略超出资产范围的 @图x / @音频x，防止卡死
+// @version      3.3.0
+// @description  在零一/aigc.zeroaigen.cn 网页上自动校验已上传素材，无素材时安全提醒，全自动单次死锁防御
 // @author       Antigravity
 // @match        *://aigc.zeroaigen.cn/*
 // @grant        GM_addStyle
@@ -12,7 +12,7 @@
 (function () {
   'use strict';
 
-  console.log('[ZeroAIGen Floating Widget v3.2.0] 资产校验防护版已加载！');
+  console.log('[ZeroAIGen Floating Widget v3.3.0] 已载入未上传资产防死锁版！');
 
   // 1. 注入 CSS 样式
   const style = `
@@ -21,12 +21,12 @@
       top: 120px;
       right: 40px;
       width: 260px;
-      background: rgba(17, 24, 39, 0.92);
-      backdrop-filter: blur(12px);
-      -webkit-backdrop-filter: blur(12px);
-      border: 1px solid rgba(16, 185, 129, 0.4);
+      background: rgba(17, 24, 39, 0.94);
+      backdrop-filter: blur(14px);
+      -webkit-backdrop-filter: blur(14px);
+      border: 1px solid rgba(16, 185, 129, 0.45);
       border-radius: 14px;
-      box-shadow: 0 12px 32px rgba(0, 0, 0, 0.5);
+      box-shadow: 0 12px 36px rgba(0, 0, 0, 0.55);
       color: #f3f4f6;
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
       z-index: 9999999;
@@ -36,12 +36,12 @@
     }
 
     #zero-floating-widget:hover {
-      box-shadow: 0 16px 40px rgba(16, 185, 129, 0.25);
+      box-shadow: 0 16px 44px rgba(16, 185, 129, 0.3);
     }
 
     .zero-widget-header {
       padding: 10px 14px;
-      background: rgba(31, 41, 55, 0.7);
+      background: rgba(31, 41, 55, 0.8);
       border-bottom: 1px solid rgba(255, 255, 255, 0.08);
       cursor: move;
       display: flex;
@@ -108,11 +108,11 @@
     }
 
     .zero-detection-value.empty {
-      color: #6b7280;
+      color: #9ca3af;
     }
 
     .zero-detection-value.warn {
-      color: #f59e0b;
+      color: #ef4444;
     }
 
     .zero-widget-action-btn {
@@ -190,7 +190,7 @@
       font-weight: 600;
       box-shadow: 0 10px 25px rgba(0,0,0,0.5);
       z-index: 99999999;
-      animation: zeroToastFade 2.8s forwards;
+      animation: zeroToastFade 3s forwards;
     }
     @keyframes zeroToastFade {
       0% { opacity: 0; transform: translateY(-10px); }
@@ -213,17 +213,18 @@
     toast.className = 'zero-mention-toast';
     toast.innerText = msg;
     document.body.appendChild(toast);
-    setTimeout(() => toast.remove(), 2800);
+    setTimeout(() => toast.remove(), 3000);
   }
 
-  // 2. 自动检测顶部媒体素材库中【实际已存在】的资产集合 (如 图1, 图2... 音频1)
+  // 2. 准确扫描页面上方“已上传素材”标签列表
   function getAvailableAssets() {
-    const assetElems = document.querySelectorAll('div, span, p, b');
     const availableTags = new Set();
+    const allElems = document.querySelectorAll('div, span, p, b');
 
-    for (const el of assetElems) {
+    for (const el of allElems) {
       if (el.children.length === 0 && el.innerText) {
         const text = el.innerText.trim();
+        // 匹配 图1, 图2... 音频1, 音频2 等素材标签
         if (/^(图\d+|音频\d+)$/.test(text)) {
           availableTags.add(text);
         }
@@ -232,12 +233,16 @@
     return availableTags;
   }
 
-  // 3. 统计文本框中当前有多少未关联的 @图x / @音频x，并区分有效与超出范围项
+  // 3. 统计文本框中未转换的标签，区分【有效存在素材】与【无素材项】
   function detectUnlinkedMentions() {
     const editor = document.querySelector('[contenteditable="true"]') || document.querySelector('textarea');
-    if (!editor) return { count: 0, validItems: [], invalidItems: [], availableAssets: new Set() };
-
     const availableAssets = getAvailableAssets();
+    const hasAssetsUploaded = availableAssets.size > 0;
+
+    if (!editor) {
+      return { totalUnlinked: 0, validCount: 0, invalidCount: 0, hasAssetsUploaded, availableAssets };
+    }
+
     const walker = document.createTreeWalker(editor, NodeFilter.SHOW_TEXT, null, false);
     const validItems = [];
     const invalidItems = [];
@@ -247,26 +252,30 @@
       const val = node.nodeValue || '';
       const matches = Array.from(val.matchAll(/(?:@|＠)(图\d+|音频\d+)/g));
       for (const m of matches) {
-        const tagText = m[1]; // "图7"
-        if (availableAssets.size === 0 || availableAssets.has(tagText)) {
-          validItems.push(m[0]);
+        const fullTag = m[0];
+        const cleanTag = m[1];
+
+        // 关键逻辑：如果未上传任何素材 (hasAssetsUploaded == false)，所有 @图x 都是无效无素材项
+        if (hasAssetsUploaded && availableAssets.has(cleanTag)) {
+          validItems.push(fullTag);
         } else {
-          invalidItems.push(m[0]);
+          invalidItems.push(fullTag);
         }
       }
     }
 
     return {
-      count: validItems.length + invalidItems.length,
+      totalUnlinked: validItems.length + invalidItems.length,
       validCount: validItems.length,
       invalidCount: invalidItems.length,
       validItems,
       invalidItems,
+      hasAssetsUploaded,
       availableAssets
     };
   }
 
-  // 4. 实时更新面板检测提示
+  // 4. 实时更新悬浮面板检测状态
   function updateDetectionUI() {
     const countValueEl = document.getElementById('zero-detection-count');
     const statusTextEl = document.getElementById('zero-widget-status');
@@ -274,23 +283,40 @@
 
     if (!countValueEl) return;
 
-    const { validCount, invalidCount, invalidItems } = detectUnlinkedMentions();
+    const { totalUnlinked, validCount, invalidCount, hasAssetsUploaded, invalidItems } = detectUnlinkedMentions();
+
+    if (!hasAssetsUploaded) {
+      if (totalUnlinked > 0) {
+        countValueEl.innerText = `未上传素材 (0/${totalUnlinked}可转换)`;
+        countValueEl.className = 'zero-detection-value warn';
+        if (statusTextEl && (!runBtn || !runBtn.disabled)) {
+          statusTextEl.innerText = '⚠️ 页面未上传任何图片或音频素材';
+        }
+      } else {
+        countValueEl.innerText = '无未关联标签 (未上传素材)';
+        countValueEl.className = 'zero-detection-value empty';
+        if (statusTextEl && (!runBtn || !runBtn.disabled)) {
+          statusTextEl.innerText = '提示：请先在页面上传素材';
+        }
+      }
+      return;
+    }
 
     if (validCount > 0) {
       countValueEl.innerText = `${validCount} 个可关联`;
       countValueEl.className = 'zero-detection-value';
       if (invalidCount > 0) {
-        countValueEl.innerText += ` (${invalidCount}个超出素材库)`;
+        countValueEl.innerText += ` (${invalidCount}个未找到素材)`;
         countValueEl.className = 'zero-detection-value warn';
       }
       if (statusTextEl && (!runBtn || !runBtn.disabled)) {
         statusTextEl.innerText = `发现 ${validCount} 个可转换标签`;
       }
     } else if (invalidCount > 0) {
-      countValueEl.innerText = `0 可关联 (${invalidCount}个未找到素材)`;
+      countValueEl.innerText = `0 可关联 (${invalidCount}个超界)`;
       countValueEl.className = 'zero-detection-value warn';
       if (statusTextEl && (!runBtn || !runBtn.disabled)) {
-        statusTextEl.innerText = `提示：${invalidItems.join(', ')} 在素材库中不存在`;
+        statusTextEl.innerText = `素材未匹配: ${invalidItems.slice(0, 3).join(', ')}`;
       }
     } else {
       countValueEl.innerText = '0 个 (已全部关联)';
@@ -301,7 +327,7 @@
     }
   }
 
-  // 5. 创建 UI 面板
+  // 5. 创建悬浮窗 UI
   function createFloatingWidget() {
     if (document.getElementById('zero-floating-widget')) return;
 
@@ -387,7 +413,7 @@
     }
   }
 
-  // 6. 执行全量极速转换（带资产校验防死循环保护）
+  // 6. 核心处理逻辑：单次尝试强保护 (防任何死循环与无素材卡死)
   async function runAutoMentionTurbo() {
     const runBtn = document.getElementById('zero-widget-action-btn');
     const statusText = document.getElementById('zero-widget-status');
@@ -398,12 +424,19 @@
       return;
     }
 
-    const { validCount, invalidCount, invalidItems, availableAssets } = detectUnlinkedMentions();
+    const { totalUnlinked, validCount, invalidCount, hasAssetsUploaded, invalidItems, availableAssets } = detectUnlinkedMentions();
+
+    // 关键卡关：未上传任何素材时阻止运行
+    if (!hasAssetsUploaded) {
+      showToast('⚠️ 当前页面尚未上传任何素材！请先在页面【+ 本地上传】素材');
+      if (statusText) statusText.innerText = '拦截：未上传素材无法关联';
+      return;
+    }
 
     if (validCount === 0) {
       if (invalidCount > 0) {
-        showToast(`⚠️ 提示词中的 ${invalidItems.join(', ')} 超出素材库数量！无法转换`);
-        if (statusText) statusText.innerText = `超出资产界限: ${invalidItems.join(', ')}`;
+        showToast(`⚠️ 提示词中的 ${invalidItems.join(', ')} 在素材库中未找到！`);
+        if (statusText) statusText.innerText = `素材缺失: ${invalidItems.slice(0, 2).join(', ')}`;
       } else {
         showToast('ℹ️ 文本框中当前没有未关联的 @标签！');
         if (statusText) statusText.innerText = '无需关联处理';
@@ -415,12 +448,12 @@
       runBtn.disabled = true;
       runBtn.innerHTML = '<span>🔄</span> 正在极速关联中...';
     }
-    if (statusText) statusText.innerText = `正在转换 ${validCount} 个有效标签...`;
+    if (statusText) statusText.innerText = `正在处理 ${validCount} 个有效标签...`;
 
     let totalProcessed = 0;
     let skippedCount = 0;
-    const maxLoops = 60;
-    const failedOrInvalidTags = new Set(); // 记住已校验过的无效标签，防止死循环
+    const maxLoops = 50;
+    const triedSet = new Set(); // 单次尝试集合：绝对不允许任何标签尝试 2 次！死锁防护！
     const evEnter = new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', keyCode: 13, bubbles: true });
 
     try {
@@ -434,18 +467,18 @@
           const val = node.nodeValue || '';
           const m = /(?:@|＠)(图\d+|音频\d+)/.exec(val);
           if (m) {
-            const fullTag = m[0]; // "@图7"
-            const cleanTag = m[1]; // "图7"
+            const fullTag = m[0];  // "@图1"
+            const cleanTag = m[1]; // "图1"
 
-            // 如果这个标签已经被标记为“素材库中不存在”，跳过寻找下一个
-            if (failedOrInvalidTags.has(fullTag)) {
+            // 防死锁硬要求：尝试过的标签绝对不再尝试
+            if (triedSet.has(fullTag)) {
               continue;
             }
 
-            // 校对素材库资产清单
-            if (availableAssets.size > 0 && !availableAssets.has(cleanTag)) {
-              console.warn(`[ZeroAIGen] 检测到不存在的资产标签 ${fullTag}，已安全跳过`);
-              failedOrInvalidTags.add(fullTag);
+            // 素材库校验
+            if (!availableAssets.has(cleanTag)) {
+              console.warn(`[ZeroAIGen] 素材库中未找到 ${fullTag}，已安全跳过`);
+              triedSet.add(fullTag);
               skippedCount++;
               continue;
             }
@@ -460,6 +493,9 @@
 
         const matchText = targetMatch[0];
         const matchIndex = targetMatch.index;
+
+        // 标记为已尝试
+        triedSet.add(matchText);
 
         if (matchIndex + matchText.length > targetNode.nodeValue.length) continue;
 
@@ -484,14 +520,14 @@
 
           totalProcessed++;
         } catch (err) {
-          failedOrInvalidTags.add(matchText);
+          console.error('单项关联失败:', err);
           await new Promise((r) => setTimeout(r, 20));
         }
       }
 
       let msg = `✅ 关联完成！成功转换 ${totalProcessed} 个标签`;
       if (skippedCount > 0) {
-        msg += ` (跳过 ${skippedCount} 个超出素材库的标签)`;
+        msg += ` (跳过 ${skippedCount} 个未找到素材的标签)`;
       }
       showToast(msg);
       if (statusText) statusText.innerText = msg;
