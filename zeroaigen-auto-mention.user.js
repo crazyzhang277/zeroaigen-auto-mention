@@ -1,10 +1,12 @@
 // ==UserScript==
-// @name         ZeroAIGen @主体标签一键关联工具(双向自由拖拽版)
+// @name         ZeroAIGen @主体标签一键关联工具(通用全项目全域名支持版)
 // @namespace    http://tampermonkey.net/
-// @version      4.7.0
-// @description  在零一/aigc.zeroaigen.cn 网页上主控制面板与最小化球形图标均支持全屏任意拖拽，完美区分拖拽与点击
+// @version      4.8.0
+// @description  在零一 AIGC 网页上(支持任意用户/任意项目 projectId/任意页面/所有子域名)自动精准关联素材标签
 // @author       Antigravity
 // @match        *://aigc.zeroaigen.cn/*
+// @match        *://*.zeroaigen.cn/*
+// @match        *://zeroaigen.cn/*
 // @grant        GM_addStyle
 // @run-at       document-end
 // ==/UserScript==
@@ -12,7 +14,7 @@
 (function () {
   'use strict';
 
-  console.log('[ZeroAIGen Floating Widget v4.7.0] 双向自由拖拽版已加载！');
+  console.log('[ZeroAIGen Floating Widget v4.8.0] 通用全项目全域名支持版已加载！');
 
   // 1. CSS 样式
   const style = `
@@ -204,7 +206,6 @@
       line-height: 1.4;
     }
 
-    /* 最小化后的悬浮小圆球按钮（支持移动拖拽） */
     #zero-minimized-badge {
       position: fixed;
       top: 120px;
@@ -514,8 +515,7 @@
     };
 
     makeDraggable(widget, document.getElementById('zero-widget-drag-handle'));
-    
-    // 给收起后的球形按钮添加拖拽与点击判定支持
+
     makeDraggableBadge(minBadge, () => {
       minBadge.style.display = 'none';
       widget.style.display = 'block';
@@ -592,7 +592,6 @@
       document.onmouseup = () => {
         document.onmousemove = null;
         document.onmouseup = null;
-        // 如果移动距离小于 4 像素，认定为纯点击行为，触发展开面板！
         if (!isDragging) {
           onClickCallback();
         }
