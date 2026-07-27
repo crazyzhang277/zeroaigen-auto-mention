@@ -1,8 +1,8 @@
 // ==UserScript==
-// @name         ZeroAIGen @主体标签一键关联工具(连续流畅+精准素材防护版)
+// @name         ZeroAIGen @主体标签一键关联工具(文本框隔离防误判纯净版)
 // @namespace    http://tampermonkey.net/
-// @version      3.5.0
-// @description  在零一/aigc.zeroaigen.cn 网页上提供流畅连续的 @标签自动关联，准确判定素材上传状态，一键全量转换不间断
+// @version      3.6.0
+// @description  在零一/aigc.zeroaigen.cn 网页上精准隔离文本框内容与素材库，彻底解决未上传素材时的误判问题，真正实现连续流畅全量转换
 // @author       Antigravity
 // @match        *://aigc.zeroaigen.cn/*
 // @grant        GM_addStyle
@@ -12,7 +12,7 @@
 (function () {
   'use strict';
 
-  console.log('[ZeroAIGen Floating Widget v3.5.0] 连续流畅+精准素材防护版已加载！');
+  console.log('[ZeroAIGen Floating Widget v3.6.0] 文本框隔离纯净版已加载！');
 
   // 1. CSS 样式
   const style = `
@@ -219,7 +219,7 @@
   if (typeof GM_addStyle !== 'undefined') {
     GM_addStyle(style);
   } else {
-    const s = document.createElement('style');
+    const s = document.createStyleElement ? document.createStyleElement() : document.createElement('style');
     s.innerHTML = style;
     document.head.appendChild(s);
   }
@@ -234,42 +234,39 @@
 
   const TAG_REGEX = /(?:@|＠)(图\d+|音频\d+|视频\d+|镜头\d+|角色\d+|主体\d+|素材\d+)/g;
 
-  // 2. 精准定位当前提示词区域内的素材栏（排除右侧的历史记录视频网格）
-  function checkPromptAssetUploadState() {
-    // 寻找包含“本地上传”或“资产导入”按钮的专属素材区域
-    const allBtns = document.querySelectorAll('button, div, span, p');
-    let assetArea = null;
-
-    for (const el of allBtns) {
-      if (el.children.length === 0 && el.innerText && el.innerText.trim().includes('本地上传')) {
-        assetArea = el.closest('div[class*="asset"], div[class*="upload"], div[class*="media"]') || el.parentElement?.parentElement?.parentElement;
-        break;
-      }
-    }
-
+  // 2. 精准隔离检测：只扫描【文本框外部】真正上传的图片/音频素材卡片，绝对排除文本框内部的长段落文本！
+  function getOnlyUploadedAssets() {
     const availableTags = new Set();
+    const editor = document.querySelector('[contenteditable="true"]') || document.querySelector('textarea');
+    const allElems = document.querySelectorAll('div, span, p, b');
 
-    if (assetArea) {
-      // 仅在该素材容器内部查找 图1, 图2, 音频1 等真正上传的缩略图标签
-      const areaText = assetArea.innerText || '';
-      const matches = areaText.match(/(?:图|音频|视频|镜头|角色|主体|素材)\d+/g);
-      if (matches) {
-        matches.forEach(t => availableTags.add(t));
+    for (const el of allElems) {
+      // 核心修复点：如果当前 DOM 节点属于【提示词文本框内部】，坚决排除！不进行素材扫描！
+      if (editor && (editor === el || editor.contains(el))) {
+        continue;
+      }
+
+      if (el.children.length === 0 && el.innerText) {
+        const text = el.innerText.trim();
+        // 精确匹配独立素材卡片的角标标签（如 "图1", "图2", "音频1"）
+        if (/^(图\d+|音频\d+|视频\d+|镜头\d+|角色\d+|主体\d+|素材\d+)$/.test(text)) {
+          availableTags.add(text);
+        }
       }
     }
 
-    const hasAssets = availableTags.size > 0;
-    return { hasAssets, availableTags, assetAreaFound: !!assetArea };
+    return availableTags;
   }
 
-  // 3. 扫描文本框未转换项
+  // 3. 统计文本框未转换项并进行独立隔离匹配
   function detectUnlinkedMentions() {
     const editor = document.querySelector('[contenteditable="true"]') || document.querySelector('textarea');
-    const { hasAssets, availableTags } = checkPromptAssetUploadState();
+    const uploadedAssets = getOnlyUploadedAssets();
+    const hasAssets = uploadedAssets.size > 0;
     const strictCheck = document.getElementById('zero-strict-asset-check')?.checked ?? true;
 
     if (!editor) {
-      return { totalUnlinked: 0, validCount: 0, hasAssets, availableTags };
+      return { totalUnlinked: 0, validCount: 0, invalidCount: 0, hasAssets, uploadedAssets };
     }
 
     const walker = document.createTreeWalker(editor, NodeFilter.SHOW_TEXT, null, false);
@@ -284,8 +281,8 @@
         const fullTag = m[0];
         const cleanTag = m[1];
 
-        // 严格模式下要求素材库必须上传且包含该编号；非严格模式下直接允许转换
-        if (!strictCheck || (hasAssets && availableTags.has(cleanTag))) {
+        // 只有当文本框外部确实上传了匹配名称的素材卡片时，才算作有效项
+        if (!strictCheck || (hasAssets && uploadedAssets.has(cleanTag))) {
           validItems.push(fullTag);
         } else {
           invalidItems.push(fullTag);
@@ -300,7 +297,7 @@
       validItems,
       invalidItems,
       hasAssets,
-      availableTags
+      uploadedAssets
     };
   }
 
@@ -315,18 +312,19 @@
 
     const { totalUnlinked, validCount, invalidCount, hasAssets } = detectUnlinkedMentions();
 
+    // 当页面顶部未上传素材（uploadedAssets 为空）
     if (strictCheck && !hasAssets) {
       if (totalUnlinked > 0) {
         countValueEl.innerText = `未上传素材 (0/${totalUnlinked}可转换)`;
         countValueEl.className = 'zero-detection-value warn';
         if (statusTextEl && (!runBtn || !runBtn.disabled)) {
-          statusTextEl.innerText = '⚠️ 素材库为空，取消勾选“校验素材”可强制转换';
+          statusTextEl.innerText = '⚠️ 页面未上传素材（取消勾选“校验素材”可强行转换）';
         }
       } else {
         countValueEl.innerText = '无未关联标签';
         countValueEl.className = 'zero-detection-value empty';
         if (statusTextEl && (!runBtn || !runBtn.disabled)) {
-          statusTextEl.innerText = '提示：请先在页面上传素材';
+          statusTextEl.innerText = '提示：请先在页面【+ 本地上传】素材';
         }
       }
       return;
@@ -342,7 +340,7 @@
       countValueEl.innerText = `0 可关联 (${invalidCount}个超界)`;
       countValueEl.className = 'zero-detection-value warn';
       if (statusTextEl && (!runBtn || !runBtn.disabled)) {
-        statusTextEl.innerText = '提示：检测到的标签不在已上传素材中';
+        statusTextEl.innerText = '提示：标签编号超出当前已上传素材范围';
       }
     } else {
       countValueEl.innerText = '0 个 (已全部关联)';
@@ -420,7 +418,6 @@
     document.body.appendChild(minBadge);
 
     document.getElementById('zero-widget-action-btn').onclick = () => runAutoMentionStream();
-
     document.getElementById('zero-strict-asset-check').onchange = () => updateDetectionUI();
 
     document.getElementById('zero-widget-min-btn').onclick = () => {
@@ -469,7 +466,7 @@
     }
   }
 
-  // 7. 一键流畅连续全量关联算法（解决中途断开问题）
+  // 7. 一键连续全量流式转换算法（隔离判断）
   async function runAutoMentionStream() {
     const runBtn = document.getElementById('zero-widget-action-btn');
     const statusText = document.getElementById('zero-widget-status');
@@ -484,13 +481,13 @@
     const { hasAssets, validCount } = detectUnlinkedMentions();
 
     if (strictCheck && !hasAssets) {
-      showToast('⚠️ 未在文本框上方发现上传的素材！(取消勾选“严格校验已上传素材”可强行转换)');
+      showToast('⚠️ 未在页面顶部找到上传的素材！(取消勾选“严格校验已上传素材”可强行转换)');
       if (statusText) statusText.innerText = '未检测到素材，已安全拦截';
       return;
     }
 
     if (validCount === 0) {
-      showToast('ℹ️ 当前文本框中没有可以关联的 @标签！');
+      showToast('ℹ️ 当前文本框中没有可关联的 @标签！');
       if (statusText) statusText.innerText = '无需关联处理';
       return;
     }
@@ -506,7 +503,6 @@
 
     try {
       while (totalProcessed < maxTotalItems && consecutiveFailures < 3) {
-        // 动态抓取当前 DOM 树中【第一个】未转换的 @ 标签
         const walker = document.createTreeWalker(editor, NodeFilter.SHOW_TEXT, null, false);
         let targetNode = null;
         let targetMatch = null;
@@ -518,11 +514,10 @@
           if (m) {
             targetNode = node;
             targetMatch = m;
-            break; // 始终从第一个标签开始，转换完一个立刻接下一个！
+            break;
           }
         }
 
-        // 如果文本框里已经完全没有未转换的 @ 标签了，说明全部连续完成！
         if (!targetNode || !targetMatch) {
           break;
         }
@@ -537,7 +532,6 @@
         }
 
         try {
-          // 精确定位选区
           const range = document.createRange();
           const sel = window.getSelection();
           range.setStart(targetNode, matchIndex);
@@ -547,19 +541,17 @@
 
           editor.focus();
 
-          // 触发退格与重新输入
           document.execCommand('insertText', false, matchText.slice(0, -1));
           await new Promise((r) => setTimeout(r, 15));
 
           document.execCommand('insertText', false, matchText.slice(-1));
           await new Promise((r) => setTimeout(r, 25));
 
-          // 发送 Enter 或直接点击弹窗选项
           await confirmCandidatePopover(editor, cleanTag);
           await new Promise((r) => setTimeout(r, 35));
 
           totalProcessed++;
-          consecutiveFailures = 0; // 成功重置连续失败计数
+          consecutiveFailures = 0;
           if (statusText) statusText.innerText = `已连续转换 ${totalProcessed} 个标签...`;
         } catch (err) {
           console.error('单项转换失败，重试...', err);
@@ -582,7 +574,7 @@
     }
   }
 
-  // 初始化并开启状态轮询
+  // 初始化
   createFloatingWidget();
   setInterval(() => updateDetectionUI(), 1000);
 })();
