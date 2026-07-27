@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         ZeroAIGen @主体标签一键关联工具(DOM顶层重叠与捕获拖拽破局版)
 // @namespace    http://tampermonkey.net/
-// @version      5.5.0
-// @description  在零一 AIGC 网页上采用 DOM 顶层动态提升与 Window Capture 捕获拖拽，彻底解决全屏 Modal 遮挡无法拖动问题，并支持大图预览自动折叠与禁用保护
+// @version      5.5.1
+// @description  在零一 AIGC 网页上采用 DOM 顶层动态提升与 Window Capture 捕获拖拽，彻底解决全屏 Modal 遮挡无法拖动问题，并支持大图预览自动折叠与恢复
 // @author       Antigravity
 // @match        *://aigc.zeroaigen.cn/*
 // @match        *://*.zeroaigen.cn/*
@@ -14,7 +14,7 @@
 (function () {
   'use strict';
 
-  console.log('[ZeroAIGen Floating Widget v5.5.0] 大图/视频预览自动折叠与禁用保护版已加载！');
+  console.log('[ZeroAIGen Floating Widget v5.5.1] 大图/视频预览自动折叠与状态精准复位版已加载！');
 
   // 0. 判断当前页面 URL 是否属于 type=VIDEO 模式
   function isVideoMode() {
@@ -23,11 +23,11 @@
 
   // 判断当前页面是否正处于【资产详情/大图/视频预览弹窗】模式
   let wasInPreview = false;
+  let isConverting = false;
   function isPreviewMode() {
     const overlay = document.querySelector('div[data-slot="dialog-overlay"][data-state="open"]');
     const dialog = document.querySelector('div[role="dialog"][data-state="open"]');
-    const assetDetail = document.querySelector('.asset-detail');
-    return !!(overlay || dialog || assetDetail);
+    return !!(overlay || dialog);
   }
 
   // 1. CSS 样式 (使用 isolation: isolate 与 pointer-events: auto 强制置顶)
@@ -396,6 +396,10 @@
     if (inPreview) {
       if (runBtn) runBtn.disabled = true;
       if (statusTextEl) statusTextEl.innerText = '⚠️ 处于大图/视频预览中，关联已禁用';
+    } else {
+      if (runBtn && !isConverting) {
+        runBtn.disabled = false;
+      }
     }
 
     const { totalUnlinked, validCount, invalidCount, hasAssets, uploadedAssets, missingTags } = detectUnlinkedMentions();
@@ -426,18 +430,19 @@
     }
 
     if (inPreview) return;
+    if (isConverting) return;
 
     if (!hasAssets) {
       if (totalUnlinked > 0) {
         countValueEl.innerText = `未上传素材 (0/${totalUnlinked}可转换)`;
         countValueEl.className = 'zero-detection-value warn';
-        if (statusTextEl && (!runBtn || !runBtn.disabled)) {
+        if (statusTextEl) {
           statusTextEl.innerText = '⚠️ 页面未上传素材，无法关联';
         }
       } else {
         countValueEl.innerText = '无未关联标签';
         countValueEl.className = 'zero-detection-value empty';
-        if (statusTextEl && (!runBtn || !runBtn.disabled)) {
+        if (statusTextEl) {
           statusTextEl.innerText = '提示：请先在页面上传素材';
         }
       }
@@ -451,19 +456,19 @@
         countValueEl.innerText += ` (${invalidCount}个未上传不替换)`;
         countValueEl.className = 'zero-detection-value warn';
       }
-      if (statusTextEl && (!runBtn || !runBtn.disabled)) {
+      if (statusTextEl) {
         statusTextEl.innerText = `点击一键转换 ${validCount} 个有效标签`;
       }
     } else if (invalidCount > 0) {
       countValueEl.innerText = `0 可关联 (${invalidCount}个未上传不替换)`;
       countValueEl.className = 'zero-detection-value warn';
-      if (statusTextEl && (!runBtn || !runBtn.disabled)) {
+      if (statusTextEl) {
         statusTextEl.innerText = '提示：未上传素材标签保留原样不替换';
       }
     } else {
       countValueEl.innerText = '0 个 (已全部关联)';
       countValueEl.className = 'zero-detection-value empty';
-      if (statusTextEl && (!runBtn || !runBtn.disabled)) {
+      if (statusTextEl) {
         statusTextEl.innerText = '文本框暂无未关联标签';
       }
     }
@@ -542,6 +547,8 @@
         wasInPreview = false;
         widget.style.display = 'block';
         minBadge.style.display = 'none';
+        const runBtn = document.getElementById('zero-widget-action-btn');
+        if (runBtn && !isConverting) runBtn.disabled = false;
       }
     }
 
@@ -751,10 +758,12 @@
       return;
     }
 
-    const editor = document.querySelector('[contenteditable="true"]') || document.querySelector('textarea');
+    isConverting = true;
 
+    const editor = document.querySelector('[contenteditable="true"]') || document.querySelector('textarea');
     if (!editor) {
       showToast('❌ 未找到可编辑的提示词文本框！');
+      isConverting = false;
       return;
     }
 
@@ -763,12 +772,14 @@
     if (!hasAssets) {
       showToast('⚠️ 未在页面顶部找到上传的素材！请先上传素材后再关联');
       if (statusText) statusText.innerText = '未检测到素材，放弃转换';
+      isConverting = false;
       return;
     }
 
     if (initialValidCount === 0) {
       showToast('ℹ️ 文本框中没有符合素材库的 @标签！(未上传项保持原样)');
-      if (statusText.innerText) statusText.innerText = '未上传素材项已全部保留原样';
+      if (statusText) statusText.innerText = '未上传素材项已全部保留原样';
+      isConverting = false;
       return;
     }
 
@@ -872,6 +883,7 @@
       console.error('[ZeroAIGen] 处理出错', err);
       showToast('⚠️ 处理出错');
     } finally {
+      isConverting = false;
       if (runBtn) {
         runBtn.disabled = false;
         runBtn.innerHTML = '<span>⚡</span> <span>一键关联 @标签</span>';
