@@ -46,18 +46,23 @@
 
 ## 🛠️ 安装与使用步骤
 
-### 步骤 1：安装 Tampermonkey (油猴) 扩展
-如果你的浏览器尚未安装油猴插件，请先选择对应的浏览器扩展商店进行安装：
-- [Chrome Web Store - Tampermonkey](https://chrome.google.com/webstore/detail/dhdgffkkebhmkfjojejmpbldmpobfkfo)
-- [Edge 扩展商店 - Tampermonkey](https://microsoftedge.microsoft.com/addons/detail/iikflimngbkmflgliblahdmobdkoocik)
+### 🚀 方式一：一键直连安装与自动更新 (最推荐)
+1. 确保浏览器已安装 [Tampermonkey (油猴) 扩展](https://chrome.google.com/webstore/detail/dhdgffkkebhmkfjojejmpbldmpobfkfo)。
+2. 直接点击右侧安装直链：[👉 **点击一键安装 ZeroAIGen 智能关联脚本**](https://raw.githubusercontent.com/crazyzhang277/zeroaigen-auto-mention/master/zeroaigen-auto-mention.user.js)。
+3. 油猴会自动弹出安装界面，点击 **“安装”** 即可！
+4. **自动更新保障**：脚本已内置 `@updateURL` 与 `@downloadURL` 检查，后续仓库更新时油猴会自动静默升级到最新版。
 
-### 步骤 2：添加并保存脚本源码
+---
+
+### 📝 方式二：手动复制代码安装
 1. 点击浏览器右上角 Tampermonkey 图标 -> 选择 **“添加新脚本”**。
-2. 打开本仓库中的脚本文件：[**zeroaigen-auto-mention.user.js**](./zeroaigen-auto-mention.user.js)。
+2. 打开本仓库中的脚本源码：[**zeroaigen-auto-mention.user.js**](./zeroaigen-auto-mention.user.js)。
 3. 全选复制其中的全部代码，粘贴覆盖到油猴编辑器中。
 4. 按 `Ctrl + S` （或点击左上角 `文件 -> 保存`）。
 
-### 步骤 3：开始体验
+---
+
+### 🎮 开始体验
 1. 访问零一 AIGC 的任意视频创作页面（如 `https://aigc.zeroaigen.cn/dashboard/universal?projectId=xxx&type=VIDEO`）。
 2. 在右侧便能看到悬浮的 **`⚡ @标签智能关联助手`** 控制面板。
 3. 粘贴长篇带有 `@图x` 或 `@音频x` 的提示词后，点击 **`⚡ 一键关联 @标签`** 即可瞬间完成批量全量关联！
