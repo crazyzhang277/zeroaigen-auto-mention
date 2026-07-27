@@ -1,8 +1,8 @@
 // ==UserScript==
-// @name         ZeroAIGen @主体标签一键关联工具(悬浮窗面板版)
+// @name         ZeroAIGen @主体标签一键关联工具(智能检测版)
 // @namespace    http://tampermonkey.net/
-// @version      3.0.0
-// @description  在零一/aigc.zeroaigen.cn 网页上提供独立可拖拽悬浮窗，一键自动关联 @图x 与 @音频x
+// @version      3.1.0
+// @description  在零一/aigc.zeroaigen.cn 网页上提供独立可拖拽悬浮窗，智能检测并一键自动关联 @图x 与 @音频x
 // @author       Antigravity
 // @match        *://aigc.zeroaigen.cn/*
 // @grant        GM_addStyle
@@ -12,22 +12,21 @@
 (function () {
   'use strict';
 
-  console.log('[ZeroAIGen Floating Widget v3.0] 已载入！');
+  console.log('[ZeroAIGen Floating Widget v3.1.0] 已载入智能检测版！');
 
-  // 1. 注入悬浮窗专属毛玻璃高颜值 CSS 样式
+  // 1. 注入 CSS 样式
   const style = `
-    /* 悬浮窗主容器 */
     #zero-floating-widget {
       position: fixed;
       top: 120px;
       right: 40px;
-      width: 240px;
-      background: rgba(17, 24, 39, 0.88);
+      width: 250px;
+      background: rgba(17, 24, 39, 0.92);
       backdrop-filter: blur(12px);
       -webkit-backdrop-filter: blur(12px);
-      border: 1px solid rgba(16, 185, 129, 0.35);
+      border: 1px solid rgba(16, 185, 129, 0.4);
       border-radius: 14px;
-      box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
+      box-shadow: 0 12px 32px rgba(0, 0, 0, 0.5);
       color: #f3f4f6;
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
       z-index: 9999999;
@@ -37,13 +36,12 @@
     }
 
     #zero-floating-widget:hover {
-      box-shadow: 0 16px 40px rgba(16, 185, 129, 0.2);
+      box-shadow: 0 16px 40px rgba(16, 185, 129, 0.25);
     }
 
-    /* 拖拽标题栏 */
     .zero-widget-header {
       padding: 10px 14px;
-      background: rgba(31, 41, 55, 0.6);
+      background: rgba(31, 41, 55, 0.7);
       border-bottom: 1px solid rgba(255, 255, 255, 0.08);
       cursor: move;
       display: flex;
@@ -82,15 +80,38 @@
       background: rgba(255, 255, 255, 0.15);
     }
 
-    /* 主体内容区 */
     .zero-widget-body {
       padding: 14px;
       display: flex;
       flex-direction: column;
-      gap: 12px;
+      gap: 10px;
     }
 
-    /* 一键关联核心按钮 */
+    /* 智能状态检测指示框 */
+    .zero-widget-detection-bar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      background: rgba(31, 41, 55, 0.5);
+      border: 1px solid rgba(255, 255, 255, 0.06);
+      padding: 8px 12px;
+      border-radius: 8px;
+      font-size: 12px;
+    }
+
+    .zero-detection-label {
+      color: #9ca3af;
+    }
+
+    .zero-detection-value {
+      font-weight: 700;
+      color: #10b981;
+    }
+
+    .zero-detection-value.empty {
+      color: #6b7280;
+    }
+
     .zero-widget-action-btn {
       width: 100%;
       background: linear-gradient(135deg, #10b981 0%, #059669 100%);
@@ -116,9 +137,11 @@
     }
 
     .zero-widget-action-btn:disabled {
-      opacity: 0.6;
+      opacity: 0.5;
       cursor: not-allowed;
       transform: none;
+      background: #374151;
+      box-shadow: none;
     }
 
     .zero-widget-status {
@@ -127,7 +150,6 @@
       text-align: center;
     }
 
-    /* 最小化展开悬浮球 */
     #zero-minimized-badge {
       position: fixed;
       top: 120px;
@@ -190,33 +212,80 @@
     setTimeout(() => toast.remove(), 2500);
   }
 
-  // 2. 创建可拖拽悬浮窗 UI
+  // 2. 统计文本框中当前有多少未关联的 @图x / @音频x
+  function detectUnlinkedMentions() {
+    const editor = document.querySelector('[contenteditable="true"]') || document.querySelector('textarea');
+    if (!editor) return { count: 0, items: [] };
+
+    const walker = document.createTreeWalker(editor, NodeFilter.SHOW_TEXT, null, false);
+    const items = [];
+    let node;
+
+    while ((node = walker.nextNode())) {
+      const val = node.nodeValue || '';
+      const matches = Array.from(val.matchAll(/(?:@|＠)(图\d+|音频\d+)/g));
+      for (const m of matches) {
+        items.push(m[0]);
+      }
+    }
+
+    return { count: items.length, items };
+  }
+
+  // 更新面板上的智能检测统计指示
+  function updateDetectionUI() {
+    const countValueEl = document.getElementById('zero-detection-count');
+    const statusTextEl = document.getElementById('zero-widget-status');
+    const runBtn = document.getElementById('zero-widget-action-btn');
+
+    if (!countValueEl) return;
+
+    const { count, items } = detectUnlinkedMentions();
+
+    if (count > 0) {
+      countValueEl.innerText = `${count} 个待处理`;
+      countValueEl.className = 'zero-detection-value';
+      if (statusTextEl && !runBtn.disabled) {
+        statusTextEl.innerText = `点击按钮自动关联这 ${count} 个标签`;
+      }
+    } else {
+      countValueEl.innerText = '0 个 (已全部关联)';
+      countValueEl.className = 'zero-detection-value empty';
+      if (statusTextEl && !runBtn.disabled) {
+        statusTextEl.innerText = '文本框暂无未关联标签';
+      }
+    }
+  }
+
+  // 3. 创建 UI 面板
   function createFloatingWidget() {
     if (document.getElementById('zero-floating-widget')) return;
 
-    // A. 悬浮窗主面板
     const widget = document.createElement('div');
     widget.id = 'zero-floating-widget';
     widget.innerHTML = `
       <div class="zero-widget-header" id="zero-widget-drag-handle">
         <div class="zero-widget-title">
           <span>⚡</span>
-          <span>@标签自动关联助手</span>
+          <span>@标签智能关联助手</span>
         </div>
         <div class="zero-widget-controls">
           <button class="zero-widget-btn-icon" id="zero-widget-min-btn" title="最小化">一</button>
         </div>
       </div>
-      <div class="zero-widget-body" id="zero-widget-body">
-        <button class="zero-widget-action-btn" id="zero-widget-run-btn">
+      <div class="zero-widget-body">
+        <div class="zero-widget-detection-bar">
+          <span class="zero-detection-label">未关联检测：</span>
+          <span class="zero-detection-value" id="zero-detection-count">检测中...</span>
+        </div>
+        <button class="zero-widget-action-btn" id="zero-widget-action-btn">
           <span>⚡</span>
           <span>一键关联 @标签</span>
         </button>
-        <div class="zero-widget-status" id="zero-widget-status">就绪：粘贴提示词后点击处理</div>
+        <div class="zero-widget-status" id="zero-widget-status">准备就绪</div>
       </div>
     `;
 
-    // B. 最小化悬浮球
     const minBadge = document.createElement('div');
     minBadge.id = 'zero-minimized-badge';
     minBadge.title = '打开 @标签关联助手';
@@ -226,8 +295,7 @@
     document.body.appendChild(widget);
     document.body.appendChild(minBadge);
 
-    // 绑定事件
-    document.getElementById('zero-widget-run-btn').onclick = () => runAutoMentionTurbo();
+    document.getElementById('zero-widget-action-btn').onclick = () => runAutoMentionTurbo();
 
     document.getElementById('zero-widget-min-btn').onclick = () => {
       widget.style.display = 'none';
@@ -237,13 +305,13 @@
     minBadge.onclick = () => {
       minBadge.style.display = 'none';
       widget.style.display = 'block';
+      updateDetectionUI();
     };
 
-    // 实现悬浮窗自由拖拽逻辑
     makeDraggable(widget, document.getElementById('zero-widget-drag-handle'));
+    updateDetectionUI();
   }
 
-  // 拖拽算法
   function makeDraggable(elmnt, dragHandle) {
     let pos1 = 0, pos2 = 0, pos3 = 0, pos4 = 0;
     dragHandle.onmousedown = dragMouseDown;
@@ -266,7 +334,7 @@
       pos4 = e.clientY;
       elmnt.style.top = (elmnt.offsetTop - pos2) + "px";
       elmnt.style.left = (elmnt.offsetLeft - pos1) + "px";
-      elmnt.style.right = 'auto'; // 清除右定位
+      elmnt.style.right = 'auto';
     }
 
     function closeDragElement() {
@@ -275,15 +343,22 @@
     }
   }
 
-  // 3. 验证通过的极速全量转换核心算法
+  // 4. 执行自动关联
   async function runAutoMentionTurbo() {
-    const runBtn = document.getElementById('zero-widget-run-btn');
+    const runBtn = document.getElementById('zero-widget-action-btn');
     const statusText = document.getElementById('zero-widget-status');
     const editor = document.querySelector('[contenteditable="true"]') || document.querySelector('textarea');
 
     if (!editor) {
       showToast('❌ 未找到提示词文本框！');
-      if (statusText) statusText.innerText = '错误：未找到文本框';
+      return;
+    }
+
+    // 先做一次【判空检测】
+    const initialCheck = detectUnlinkedMentions();
+    if (initialCheck.count === 0) {
+      showToast('ℹ️ 文本框中当前没有未关联的 @标签！');
+      if (statusText) statusText.innerText = '检测结果：无需关联处理';
       return;
     }
 
@@ -291,7 +366,7 @@
       runBtn.disabled = true;
       runBtn.innerHTML = '<span>🔄</span> 正在极速关联中...';
     }
-    if (statusText) statusText.innerText = '正在扫描并关联标签...';
+    if (statusText) statusText.innerText = `正在处理 ${initialCheck.count} 个标签...`;
 
     let totalProcessed = 0;
     const maxLoops = 60;
@@ -346,25 +421,21 @@
         }
       }
 
-      if (totalProcessed > 0) {
-        showToast(`✅ 关联完成！共转换 ${totalProcessed} 个标签`);
-        if (statusText) statusText.innerText = `成功转换 ${totalProcessed} 个标签！`;
-      } else {
-        showToast('ℹ️ 文本框中未发现未关联的 @ 标签');
-        if (statusText) statusText.innerText = '未发现未关联标签';
-      }
+      showToast(`✅ 关联完成！成功转换 ${totalProcessed} 个标签`);
+      if (statusText) statusText.innerText = `成功关联 ${totalProcessed} 个标签！`;
     } catch (err) {
       console.error('[ZeroAIGen Mention Error]', err);
       showToast('⚠️ 处理出错');
-      if (statusText) statusText.innerText = '处理过程出现异常';
     } finally {
       if (runBtn) {
         runBtn.disabled = false;
         runBtn.innerHTML = '<span>⚡</span> <span>一键关联 @标签</span>';
       }
+      updateDetectionUI();
     }
   }
 
-  // 初始化创建悬浮窗
+  // 初始化创建并定时检测文本框变化
   createFloatingWidget();
+  setInterval(() => updateDetectionUI(), 1000);
 })();
