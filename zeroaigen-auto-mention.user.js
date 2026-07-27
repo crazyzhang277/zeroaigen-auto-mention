@@ -1,8 +1,8 @@
 // ==UserScript==
-// @name         ZeroAIGen @主体标签一键关联工具(6.0.0 终极全功能稳定版)
+// @name         ZeroAIGen @主体标签一键关联工具(Slate物理事件与React18渲染适配版)
 // @namespace    http://tampermonkey.net/
-// @version      6.0.0
-// @description  在零一 AIGC 网页上常驻完美展示双色素材面板，在预览大图下防误触提示，支持 PointerCapture 全层级顺畅拖拽
+// @version      6.1.0
+// @description  在零一 AIGC 网页上精准触发 Slate.js 物理 mousedown/mouseup 事件并适配 React18 渲染延迟，确保一键成功关联所有@标签
 // @author       Antigravity
 // @match        *://aigc.zeroaigen.cn/*
 // @match        *://*.zeroaigen.cn/*
@@ -14,14 +14,33 @@
 (function () {
   'use strict';
 
-  console.log('[ZeroAIGen Floating Widget v6.0.0] 终极全功能稳定版已加载！');
+  console.log('[ZeroAIGen Floating Widget v6.1.0] Slate物理事件与React18适配版已加载！');
 
   // 0. 判断当前页面 URL 是否属于 type=VIDEO 模式
   function isVideoMode() {
     return /[?&]type=VIDEO\b/i.test(window.location.href);
   }
 
-  // 1. CSS 样式 (使用最高 z-index 与 isolation 隔离，确保绝不被盖住，全屏随意拖拽)
+  // 获取当前可见且可编辑的提示词输入框
+  function getActiveEditor() {
+    const editors = document.querySelectorAll('[contenteditable="true"], textarea');
+    for (let i = 0; i < editors.length; i++) {
+      const ed = editors[i];
+      if (ed.offsetWidth > 0 && ed.offsetHeight > 0 && !ed.hasAttribute('disabled') && ed.getAttribute('aria-disabled') !== 'true') {
+        return ed;
+      }
+    }
+    return null;
+  }
+
+  // 精准判断用户是否正处于大图视频放大预览 Modal 界面
+  function isVideoPreviewModalOpen() {
+    const hasModalOrDrawer = document.querySelector('.ant-modal, .ant-drawer, [class*="modal"], [class*="drawer"], [class*="viewer"]') !== null;
+    const hasVideoPlayer = document.querySelector('video') !== null;
+    return hasModalOrDrawer && hasVideoPlayer;
+  }
+
+  // 1. CSS 样式 (保持最顶层 z-index 与 isolation，支持顺畅拖拽)
   const style = `
     #zero-floating-widget {
       position: fixed;
@@ -302,7 +321,7 @@
   // 2. 检索页面顶部【已上传素材栏】
   function getOnlyUploadedAssets() {
     const availableTags = new Set();
-    const editor = document.querySelector('[contenteditable="true"]') || document.querySelector('textarea');
+    const editor = getActiveEditor();
     const widget = document.getElementById('zero-floating-widget');
 
     const allElems = document.body.querySelectorAll('div, span, p, b, label, strong');
@@ -328,7 +347,7 @@
 
   // 3. 统计可转换标签及未上传标签
   function detectUnlinkedMentions() {
-    const editor = document.querySelector('[contenteditable="true"]') || document.querySelector('textarea');
+    const editor = getActiveEditor();
     const uploadedAssets = getOnlyUploadedAssets();
     const hasAssets = uploadedAssets.size > 0;
 
@@ -371,7 +390,7 @@
     };
   }
 
-  // 4. 更新检测 UI 界面（稳定完整渲染所有按钮与绿/橙胶囊）
+  // 4. 更新检测 UI 界面
   function updateDetectionUI() {
     const countValueEl = document.getElementById('zero-detection-count');
     const statusTextEl = document.getElementById('zero-widget-status');
@@ -450,18 +469,13 @@
     }
   }
 
-  // 5. 模拟弹窗确认与 DOM 物理点击
+  // 5. 模拟弹窗确认与 DOM 物理事件 (适配 Slate.js 的 mousedown + React18 异步渲染)
   async function confirmCandidatePopover(editor, cleanTag) {
-    const evDown = new KeyboardEvent('keydown', { key: 'ArrowDown', code: 'ArrowDown', keyCode: 40, bubbles: true });
-    editor.dispatchEvent(evDown);
-    await sleep(15);
-
-    const evEnter = new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', keyCode: 13, bubbles: true });
-    editor.dispatchEvent(evEnter);
-    await sleep(15);
+    // 给予 React 18 充分的时间 (70ms) 渲染 Mention 候选下拉框
+    await sleep(70);
 
     const dropdowns = document.querySelectorAll(
-      '[class*="dropdown"], [class*="popover"], [class*="mention"], [class*="select"], [role="listbox"]'
+      '[class*="dropdown"], [class*="popover"], [class*="mention"], [class*="select"], [class*="listbox"], [role="listbox"], [role="menu"]'
     );
     for (let i = 0; i < dropdowns.length; i++) {
       const dd = dropdowns[i];
@@ -470,21 +484,40 @@
         for (let j = 0; j < items.length; j++) {
           const item = items[j];
           if (item.innerText && item.innerText.includes(cleanTag)) {
-            item.click();
+            // Slate.js 必须要派发物理 mousedown + mouseup + click 才能选中选项！
+            const mouseOpts = { bubbles: true, cancelable: true, view: window };
+            item.dispatchEvent(new MouseEvent('mousedown', mouseOpts));
+            item.dispatchEvent(new MouseEvent('mouseup', mouseOpts));
+            item.dispatchEvent(new MouseEvent('click', mouseOpts));
+            await sleep(60);
             return true;
           }
         }
         const active = dd.querySelector('[class*="active"], [class*="selected"], [aria-selected="true"]');
         if (active) {
-          active.click();
+          const mouseOpts = { bubbles: true, cancelable: true, view: window };
+          active.dispatchEvent(new MouseEvent('mousedown', mouseOpts));
+          active.dispatchEvent(new MouseEvent('mouseup', mouseOpts));
+          active.dispatchEvent(new MouseEvent('click', mouseOpts));
+          await sleep(60);
           return true;
         }
       }
     }
+
+    // 备用方案：模拟键盘下箭头 + 回车确认
+    const evDown = new KeyboardEvent('keydown', { key: 'ArrowDown', code: 'ArrowDown', keyCode: 40, bubbles: true, cancelable: true });
+    editor.dispatchEvent(evDown);
+    await sleep(35);
+
+    const evEnter = new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', keyCode: 13, bubbles: true, cancelable: true });
+    editor.dispatchEvent(evEnter);
+    await sleep(50);
+
     return false;
   }
 
-  // 6. UI 面板创建与 type=VIDEO 模式纯净管控 (常驻无闪隐)
+  // 6. UI 面板创建与 type=VIDEO 模式纯净管控
   function checkModeAndUpdateUI() {
     const widget = document.getElementById('zero-floating-widget');
     const minBadge = document.getElementById('zero-minimized-badge');
@@ -499,7 +532,6 @@
     if (!widget) {
       createFloatingWidget();
     } else {
-      // 保持 DOM 物理层级始终处于 document.body 的最顶层（解决大图 Modal 遮挡）
       if (document.body.lastElementChild !== widget && document.body.lastElementChild !== minBadge) {
         document.body.appendChild(widget);
         if (minBadge) document.body.appendChild(minBadge);
@@ -583,7 +615,7 @@
     updateDetectionUI();
   }
 
-  // 7. 终极 DOM 重叠提升 + Window Capture 拖拽引擎 (击穿大图遮罩)
+  // 7. 终极 DOM 重叠提升 + Window Capture 拖拽引擎
   function makeUltimateTopDraggable(elmnt, dragHandle) {
     let startX = 0, startY = 0, initialLeft = 0, initialTop = 0;
 
@@ -698,22 +730,18 @@
     }, true);
   }
 
-  // 9. 一键全量转换 (点击时精准检测：若处于大图预览，安全提示阻断，绝不上屏闪烁)
+  // 9. 一键全量转换 (一次点击连续完成所有有效标签关联)
   async function runAutoMentionStream() {
     const runBtn = document.getElementById('zero-widget-action-btn');
     const statusText = document.getElementById('zero-widget-status');
 
-    // 精准防闪烁阻断：检查用户是否正处于大图 Modal 预览界面
-    const isModalPreview = document.querySelector('.ant-modal, .ant-drawer, [class*="modal"], [class*="drawer"], [class*="viewer"]') !== null &&
-                           document.querySelector('video') !== null;
-
-    if (isModalPreview) {
+    if (isVideoPreviewModalOpen()) {
       showToast('ℹ️ 当前处于视频放大预览界面，请先关闭大图预览再关联！');
       if (statusText) statusText.innerText = '⚠️ 大图预览中，已安全阻断点击';
       return;
     }
 
-    const editor = document.querySelector('[contenteditable="true"]') || document.querySelector('textarea');
+    const editor = getActiveEditor();
     if (!editor) {
       showToast('❌ 未找到可编辑的提示词文本框！');
       return;
@@ -798,13 +826,13 @@
           editor.focus();
 
           document.execCommand('insertText', false, matchText.slice(0, -1));
-          await sleep(20);
+          await sleep(25);
 
           document.execCommand('insertText', false, matchText.slice(-1));
-          await sleep(35);
 
+          // 调用全新的 Slate 物理 mousedown/mouseup/click 事件确认引擎
           await confirmCandidatePopover(editor, cleanTag);
-          await sleep(40);
+          await sleep(50);
 
           let postCheck = detectUnlinkedMentions();
           if (postCheck.validCount >= preValidCount) {
@@ -841,6 +869,6 @@
     }
   }
 
-  // 1 秒轻量轮询，常驻无闪隐
+  // 1 秒轮询
   setInterval(checkModeAndUpdateUI, 1000);
 })();
