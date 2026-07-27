@@ -1,8 +1,8 @@
 // ==UserScript==
-// @name         ZeroAIGen @主体标签一键关联工具(4.9基线回退与视频详情弹窗精准隐形版)
+// @name         ZeroAIGen @主体标签一键关联工具(4.9纯净常驻与全捕获顺畅拖拽版)
 // @namespace    http://tampermonkey.net/
-// @version      5.2.0
-// @description  在零一 AIGC 网页上仅在 type=VIDEO 且在创作编辑态下生效。当用户点开视频大图/详情弹窗时自动完全隐形，关闭弹窗自动恢复
+// @version      5.3.0
+// @description  在零一 AIGC 网页上(type=VIDEO)纯净常驻显示，采用 PointerCapture 解决拖拽卡顿，支持一键最小化
 // @author       Antigravity
 // @match        *://aigc.zeroaigen.cn/*
 // @match        *://*.zeroaigen.cn/*
@@ -14,46 +14,26 @@
 (function () {
   'use strict';
 
-  console.log('[ZeroAIGen Floating Widget v5.2.0] 视频详情弹窗精准隐形版已加载！');
+  console.log('[ZeroAIGen Floating Widget v5.3.0] 4.9纯净常驻与全捕获顺畅拖拽版已加载！');
 
   // 0. 判断当前页面 URL 是否属于 type=VIDEO 模式
   function isVideoMode() {
     return /[?&]type=VIDEO\b/i.test(window.location.href);
   }
 
-  // 获取当前可见且可编辑的提示词输入框
-  function getActiveEditor() {
-    const editors = document.querySelectorAll('[contenteditable="true"], textarea');
-    for (let i = 0; i < editors.length; i++) {
-      const ed = editors[i];
-      if (ed.offsetWidth > 0 && ed.offsetHeight > 0 && !ed.hasAttribute('disabled') && ed.getAttribute('aria-disabled') !== 'true') {
-        return ed;
-      }
-    }
-    return null;
-  }
-
-  // 判断用户是否正在点开视频大图/生成详情预览 Modal 弹窗
-  function isVideoPreviewModalOpen() {
-    // 如果页面上出现了大图 Modal / Drawer / 遮罩层，且内部包含视频播放器，说明用户处于视频详情查看态
-    const modalOrDrawer = document.querySelector('.ant-modal, .ant-drawer, [class*="modal"], [class*="drawer"], [class*="fullscreen"], [class*="viewer"]');
-    const hasVideoPlayer = document.querySelector('video') !== null;
-    return (modalOrDrawer !== null && hasVideoPlayer);
-  }
-
-  // 1. CSS 样式 (z-index 设为最高级的 99999999)
+  // 1. CSS 样式 (z-index 提升至 99999999 最高层)
   const style = `
     #zero-floating-widget {
       position: fixed;
       top: 120px;
       right: 40px;
       width: 295px;
-      background: rgba(17, 24, 39, 0.96);
-      backdrop-filter: blur(16px);
-      -webkit-backdrop-filter: blur(16px);
-      border: 1px solid rgba(16, 185, 129, 0.5);
+      background: rgba(17, 24, 39, 0.94);
+      backdrop-filter: blur(14px);
+      -webkit-backdrop-filter: blur(14px);
+      border: 1px solid rgba(16, 185, 129, 0.45);
       border-radius: 14px;
-      box-shadow: 0 16px 40px rgba(0, 0, 0, 0.65);
+      box-shadow: 0 12px 36px rgba(0, 0, 0, 0.55);
       color: #f3f4f6;
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
       z-index: 99999999;
@@ -64,12 +44,12 @@
     }
 
     #zero-floating-widget:hover {
-      box-shadow: 0 20px 48px rgba(16, 185, 129, 0.35);
+      box-shadow: 0 16px 44px rgba(16, 185, 129, 0.3);
     }
 
     .zero-widget-header {
       padding: 10px 14px;
-      background: rgba(31, 41, 55, 0.85);
+      background: rgba(31, 41, 55, 0.8);
       border-bottom: 1px solid rgba(255, 255, 255, 0.08);
       cursor: grab;
       display: flex;
@@ -313,13 +293,11 @@
 
   const TAG_REGEX = /(?:@|＠)(图\d+|音频\d+|视频\d+|镜头\d+|角色\d+|主体\d+|素材\d+)/g;
 
-  // 2. 严格检索页面顶部【已上传素材栏】
+  // 2. 检索页面顶部【已上传素材栏】
   function getOnlyUploadedAssets() {
     const availableTags = new Set();
-    const editor = getActiveEditor();
+    const editor = document.querySelector('[contenteditable="true"]') || document.querySelector('textarea');
     const widget = document.getElementById('zero-floating-widget');
-
-    if (!editor) return availableTags;
 
     const allElems = document.body.querySelectorAll('div, span, p, b, label, strong');
 
@@ -344,12 +322,12 @@
 
   // 3. 统计可转换标签及未上传标签
   function detectUnlinkedMentions() {
-    const editor = getActiveEditor();
+    const editor = document.querySelector('[contenteditable="true"]') || document.querySelector('textarea');
     const uploadedAssets = getOnlyUploadedAssets();
     const hasAssets = uploadedAssets.size > 0;
 
     if (!editor) {
-      return { totalUnlinked: 0, validCount: 0, invalidCount: 0, hasAssets: false, uploadedAssets: new Set(), missingTags: new Set() };
+      return { totalUnlinked: 0, validCount: 0, invalidCount: 0, hasAssets, uploadedAssets, missingTags: new Set() };
     }
 
     const walker = document.createTreeWalker(editor, NodeFilter.SHOW_TEXT, null, false);
@@ -501,22 +479,18 @@
     return false;
   }
 
-  // 6. UI 面板创建与 type=VIDEO + 可编辑框 + 视频详情弹窗精准隐形管控
+  // 6. UI 面板创建与 type=VIDEO 模式纯净管控（4.9 基线：绝对不在常驻页面误闪隐）
   function checkModeAndUpdateUI() {
     const widget = document.getElementById('zero-floating-widget');
     const minBadge = document.getElementById('zero-minimized-badge');
     const isVideo = isVideoMode();
-    const activeEditor = getActiveEditor();
-    const isPreviewOpen = isVideoPreviewModalOpen();
 
-    // 核心隔离逻辑：如果不是 VIDEO 模式、没有可编辑提示词框、或者点开了视频大图详情弹窗 -> 绝对隐形！
-    if (!isVideo || !activeEditor || isPreviewOpen) {
+    if (!isVideo) {
       if (widget) widget.style.display = 'none';
       if (minBadge) minBadge.style.display = 'none';
       return;
     }
 
-    // 在处于提示词编辑创作态时正常显示
     if (!widget) {
       createFloatingWidget();
     } else {
@@ -598,7 +572,7 @@
     updateDetectionUI();
   }
 
-  // 7. PointerCapture 顶级捕获拖拽引擎 (绝不脱手卡死)
+  // 7. PointerCapture 顶级捕获拖拽引擎 (解决 4.9 拖拽脱手卡住的核心)
   function makePointerCaptureDraggable(elmnt, dragHandle) {
     let startX = 0, startY = 0, initialLeft = 0, initialTop = 0;
 
@@ -713,7 +687,7 @@
   async function runAutoMentionStream() {
     const runBtn = document.getElementById('zero-widget-action-btn');
     const statusText = document.getElementById('zero-widget-status');
-    const editor = getActiveEditor();
+    const editor = document.querySelector('[contenteditable="true"]') || document.querySelector('textarea');
 
     if (!editor) {
       showToast('❌ 未找到可编辑的提示词文本框！');
@@ -842,6 +816,6 @@
     }
   }
 
-  // 1 秒轻量检测（根据是否属于编辑态决定显隐）
+  // 1 秒轮询，保持在 type=VIDEO 页面纯净稳定常驻
   setInterval(checkModeAndUpdateUI, 1000);
 })();
