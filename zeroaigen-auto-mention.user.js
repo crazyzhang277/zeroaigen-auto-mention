@@ -1,8 +1,8 @@
 // ==UserScript==
-// @name         ZeroAIGen @主体标签一键关联工具(仅type=VIDEO专效版)
+// @name         ZeroAIGen @主体标签一键关联工具(编辑态智能感知与全层级拖拽版)
 // @namespace    http://tampermonkey.net/
-// @version      4.9.0
-// @description  在零一 AIGC 网页上仅在 type=VIDEO 模式下生效自动精准关联素材标签，其它模式自动隐形
+// @version      5.0.0
+// @description  在零一 AIGC 网页上仅在 type=VIDEO 且存在可编辑提示词框时生效，支持大图 Modal 全层级顺畅拖拽，无编辑框时自动静默隐形
 // @author       Antigravity
 // @match        *://aigc.zeroaigen.cn/*
 // @match        *://*.zeroaigen.cn/*
@@ -14,46 +14,62 @@
 (function () {
   'use strict';
 
-  console.log('[ZeroAIGen Floating Widget v4.9.0] 仅 type=VIDEO 专效版已加载！');
+  console.log('[ZeroAIGen Floating Widget v5.0.0] 编辑态智能感知与全层级拖拽版已加载！');
 
   // 0. 判断当前页面 URL 是否属于 type=VIDEO 模式
   function isVideoMode() {
     return /[?&]type=VIDEO\b/i.test(window.location.href);
   }
 
-  // 1. CSS 样式
+  // 获取页面上当前可见且可编辑的提示词编辑器
+  function getActiveEditor() {
+    const editors = document.querySelectorAll('[contenteditable="true"], textarea');
+    for (const ed of editors) {
+      if (ed.offsetWidth > 0 && ed.offsetHeight > 0 && !ed.hasAttribute('disabled') && ed.getAttribute('aria-disabled') !== 'true') {
+        return ed;
+      }
+    }
+    return null;
+  }
+
+  // 1. CSS 样式 (z-index 提升至 99999999，彻底超越任何 Modal/Drawer 遮罩层)
   const style = `
     #zero-floating-widget {
       position: fixed;
       top: 120px;
       right: 40px;
       width: 295px;
-      background: rgba(17, 24, 39, 0.94);
-      backdrop-filter: blur(14px);
-      -webkit-backdrop-filter: blur(14px);
-      border: 1px solid rgba(16, 185, 129, 0.45);
+      background: rgba(17, 24, 39, 0.96);
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      border: 1px solid rgba(16, 185, 129, 0.5);
       border-radius: 14px;
-      box-shadow: 0 12px 36px rgba(0, 0, 0, 0.55);
+      box-shadow: 0 16px 40px rgba(0, 0, 0, 0.65);
       color: #f3f4f6;
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-      z-index: 9999999;
+      z-index: 99999999;
       user-select: none;
       overflow: hidden;
       transition: box-shadow 0.2s ease;
+      touch-action: none;
     }
 
     #zero-floating-widget:hover {
-      box-shadow: 0 16px 44px rgba(16, 185, 129, 0.3);
+      box-shadow: 0 20px 48px rgba(16, 185, 129, 0.35);
     }
 
     .zero-widget-header {
       padding: 10px 14px;
-      background: rgba(31, 41, 55, 0.8);
+      background: rgba(31, 41, 55, 0.85);
       border-bottom: 1px solid rgba(255, 255, 255, 0.08);
-      cursor: move;
+      cursor: grab;
       display: flex;
       align-items: center;
       justify-content: space-between;
+    }
+
+    .zero-widget-header:active {
+      cursor: grabbing;
     }
 
     .zero-widget-title {
@@ -63,6 +79,7 @@
       display: flex;
       align-items: center;
       gap: 6px;
+      pointer-events: none;
     }
 
     .zero-widget-controls {
@@ -224,11 +241,16 @@
       align-items: center;
       justify-content: center;
       font-size: 22px;
-      cursor: move;
+      cursor: grab;
       box-shadow: 0 6px 22px rgba(16, 185, 129, 0.5);
-      z-index: 9999999;
+      z-index: 99999999;
       user-select: none;
       transition: transform 0.15s ease, box-shadow 0.2s ease;
+      touch-action: none;
+    }
+
+    #zero-minimized-badge:active {
+      cursor: grabbing;
     }
 
     #zero-minimized-badge:hover {
@@ -248,7 +270,7 @@
       font-size: 14px;
       font-weight: 600;
       box-shadow: 0 10px 25px rgba(0,0,0,0.5);
-      z-index: 99999999;
+      z-index: 999999999;
       animation: zeroToastFade 3s forwards;
     }
 
@@ -285,8 +307,10 @@
   // 2. 严格检索页面顶部【已上传素材栏】
   function getOnlyUploadedAssets() {
     const availableTags = new Set();
-    const editor = document.querySelector('[contenteditable="true"]') || document.querySelector('textarea');
+    const editor = getActiveEditor();
     const widget = document.getElementById('zero-floating-widget');
+
+    if (!editor) return availableTags;
 
     const allElems = document.body.querySelectorAll('div, span, p, b, label, strong');
 
@@ -308,12 +332,12 @@
 
   // 3. 统计可转换标签及未上传标签
   function detectUnlinkedMentions() {
-    const editor = document.querySelector('[contenteditable="true"]') || document.querySelector('textarea');
+    const editor = getActiveEditor();
     const uploadedAssets = getOnlyUploadedAssets();
     const hasAssets = uploadedAssets.size > 0;
 
     if (!editor) {
-      return { totalUnlinked: 0, validCount: 0, invalidCount: 0, hasAssets, uploadedAssets, missingTags: new Set() };
+      return { totalUnlinked: 0, validCount: 0, invalidCount: 0, hasAssets: false, uploadedAssets: new Set(), missingTags: new Set() };
     }
 
     const walker = document.createTreeWalker(editor, NodeFilter.SHOW_TEXT, null, false);
@@ -462,20 +486,21 @@
     return false;
   }
 
-  // 6. UI 面板创建与 type=VIDEO 模式管控
+  // 6. UI 面板创建与 type=VIDEO + 可编辑框 智能显隐管控
   function checkModeAndUpdateUI() {
     const widget = document.getElementById('zero-floating-widget');
     const minBadge = document.getElementById('zero-minimized-badge');
     const isVideo = isVideoMode();
+    const activeEditor = getActiveEditor();
 
-    if (!isVideo) {
-      // 绝对隔离：非 type=VIDEO 模式下隐藏控件，不占据画面
+    // 智能隔离条件：非 type=VIDEO 模式 OR 页面不存在可编辑框（比如弹出了视频详情预览 Modal）
+    if (!isVideo || !activeEditor) {
       if (widget) widget.style.display = 'none';
       if (minBadge) minBadge.style.display = 'none';
       return;
     }
 
-    // 处于 type=VIDEO 模式
+    // 在处于 type=VIDEO 且有编辑框时显示面板
     if (!widget) {
       createFloatingWidget();
     } else {
@@ -540,14 +565,16 @@
 
     document.getElementById('zero-widget-action-btn').onclick = () => runAutoMentionStream();
 
-    document.getElementById('zero-widget-min-btn').onclick = () => {
+    document.getElementById('zero-widget-min-btn').onclick = (e) => {
+      e.stopPropagation();
       widget.style.display = 'none';
       minBadge.style.display = 'flex';
     };
 
-    makeDraggable(widget, document.getElementById('zero-widget-drag-handle'));
+    // 绑定高优先级的顶级 Pointer 拖拽（彻底防止 Modal 遮罩卡住）
+    makeUniversalDraggable(widget, document.getElementById('zero-widget-drag-handle'));
 
-    makeDraggableBadge(minBadge, () => {
+    makeUniversalDraggableBadge(minBadge, () => {
       minBadge.style.display = 'none';
       widget.style.display = 'block';
       updateDetectionUI();
@@ -556,88 +583,132 @@
     updateDetectionUI();
   }
 
-  // 7. 主面板拖拽
-  function makeDraggable(elmnt, dragHandle) {
-    let pos1 = 0, pos2 = 0, pos3 = 0, pos4 = 0;
-    dragHandle.onmousedown = dragMouseDown;
+  // 7. 全层级通用 Pointer 拖拽引擎 (彻底防卡死)
+  function makeUniversalDraggable(elmnt, dragHandle) {
+    let startX = 0, startY = 0, initialLeft = 0, initialTop = 0;
 
-    function dragMouseDown(e) {
-      e = e || window.event;
-      e.preventDefault();
-      pos3 = e.clientX;
-      pos4 = e.clientY;
-      document.onmouseup = closeDragElement;
-      document.onmousemove = elementDrag;
-    }
+    dragHandle.addEventListener('pointerdown', onPointerDown, { passive: false });
 
-    function elementDrag(e) {
-      e = e || window.event;
+    function onPointerDown(e) {
+      if (e.target.closest('.zero-widget-controls')) return;
+
       e.preventDefault();
-      pos1 = pos3 - e.clientX;
-      pos2 = pos4 - e.clientY;
-      pos3 = e.clientX;
-      pos4 = e.clientY;
-      elmnt.style.top = (elmnt.offsetTop - pos2) + "px";
-      elmnt.style.left = (elmnt.offsetLeft - pos1) + "px";
+      e.stopPropagation();
+
+      startX = e.clientX;
+      startY = e.clientY;
+
+      const rect = elmnt.getBoundingClientRect();
+      initialLeft = rect.left;
+      initialTop = rect.top;
+
+      elmnt.style.left = initialLeft + 'px';
+      elmnt.style.top = initialTop + 'px';
       elmnt.style.right = 'auto';
+
+      dragHandle.setPointerCapture(e.pointerId);
+
+      dragHandle.addEventListener('pointermove', onPointerMove, { passive: false });
+      dragHandle.addEventListener('pointerup', onPointerUp, { passive: false });
+      dragHandle.addEventListener('pointercancel', onPointerUp, { passive: false });
     }
 
-    function closeDragElement() {
-      document.onmouseup = null;
-      document.onmousemove = null;
+    function onPointerMove(e) {
+      e.preventDefault();
+      e.stopPropagation();
+
+      const dx = e.clientX - startX;
+      const dy = e.clientY - startY;
+
+      elmnt.style.left = (initialLeft + dx) + 'px';
+      elmnt.style.top = (initialTop + dy) + 'px';
+    }
+
+    function onPointerUp(e) {
+      e.preventDefault();
+      e.stopPropagation();
+
+      try {
+        dragHandle.releasePointerCapture(e.pointerId);
+      } catch (_) {}
+
+      dragHandle.removeEventListener('pointermove', onPointerMove);
+      dragHandle.removeEventListener('pointerup', onPointerUp);
+      dragHandle.removeEventListener('pointercancel', onPointerUp);
     }
   }
 
-  // 8. 收起后球形按钮的拖拽 + 点击判定
-  function makeDraggableBadge(elmnt, onClickCallback) {
-    let pos1 = 0, pos2 = 0, pos3 = 0, pos4 = 0;
-    let isDragging = false;
-    let startX = 0, startY = 0;
+  // 8. 收起后球形按钮的通用 Pointer 拖拽 + 点击判定
+  function makeUniversalDraggableBadge(elmnt, onClickCallback) {
+    let startX = 0, startY = 0, initialLeft = 0, initialTop = 0;
+    let isMoved = false;
 
-    elmnt.onmousedown = (e) => {
-      e = e || window.event;
+    elmnt.addEventListener('pointerdown', onPointerDown, { passive: false });
+
+    function onPointerDown(e) {
       e.preventDefault();
-      isDragging = false;
+      e.stopPropagation();
+
+      isMoved = false;
       startX = e.clientX;
       startY = e.clientY;
-      pos3 = e.clientX;
-      pos4 = e.clientY;
 
-      document.onmousemove = (e) => {
-        e = e || window.event;
-        e.preventDefault();
-        const dx = Math.abs(e.clientX - startX);
-        const dy = Math.abs(e.clientY - startY);
-        if (dx > 4 || dy > 4) {
-          isDragging = true;
-        }
-        pos1 = pos3 - e.clientX;
-        pos2 = pos4 - e.clientY;
-        pos3 = e.clientX;
-        pos4 = e.clientY;
-        elmnt.style.top = (elmnt.offsetTop - pos2) + 'px';
-        elmnt.style.left = (elmnt.offsetLeft - pos1) + 'px';
-        elmnt.style.right = 'auto';
-      };
+      const rect = elmnt.getBoundingClientRect();
+      initialLeft = rect.left;
+      initialTop = rect.top;
 
-      document.onmouseup = () => {
-        document.onmousemove = null;
-        document.onmouseup = null;
-        if (!isDragging) {
-          onClickCallback();
-        }
-      };
-    };
+      elmnt.style.left = initialLeft + 'px';
+      elmnt.style.top = initialTop + 'px';
+      elmnt.style.right = 'auto';
+
+      elmnt.setPointerCapture(e.pointerId);
+
+      elmnt.addEventListener('pointermove', onPointerMove, { passive: false });
+      elmnt.addEventListener('pointerup', onPointerUp, { passive: false });
+      elmnt.addEventListener('pointercancel', onPointerUp, { passive: false });
+    }
+
+    function onPointerMove(e) {
+      e.preventDefault();
+      e.stopPropagation();
+
+      const dx = e.clientX - startX;
+      const dy = e.clientY - startY;
+
+      if (Math.abs(dx) > 4 || Math.abs(dy) > 4) {
+        isMoved = true;
+      }
+
+      elmnt.style.left = (initialLeft + dx) + 'px';
+      elmnt.style.top = (initialTop + dy) + 'px';
+    }
+
+    function onPointerUp(e) {
+      e.preventDefault();
+      e.stopPropagation();
+
+      try {
+        elmnt.releasePointerCapture(e.pointerId);
+      } catch (_) {}
+
+      elmnt.removeEventListener('pointermove', onPointerMove);
+      elmnt.removeEventListener('pointerup', onPointerUp);
+      elmnt.removeEventListener('pointercancel', onPointerUp);
+
+      if (!isMoved) {
+        onClickCallback();
+      }
+    }
   }
 
   // 9. 一键全量转换
   async function runAutoMentionStream() {
     const runBtn = document.getElementById('zero-widget-action-btn');
     const statusText = document.getElementById('zero-widget-status');
-    const editor = document.querySelector('[contenteditable="true"]') || document.querySelector('textarea');
+    const editor = getActiveEditor();
 
     if (!editor) {
-      showToast('❌ 未找到提示词文本框！');
+      showToast('❌ 未找到可编辑的提示词文本框！');
       return;
     }
 
@@ -763,6 +834,6 @@
     }
   }
 
-  // 初始化与 URL 实时检测（支持单页应用无刷新切换模式）
+  // 初始化与 URL + 编辑框状态实时检测
   setInterval(checkModeAndUpdateUI, 1000);
 })();
