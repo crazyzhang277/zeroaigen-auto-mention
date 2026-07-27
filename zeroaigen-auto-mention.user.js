@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         ZeroAIGen @主体标签一键关联工具(DOM顶层重叠与捕获拖拽破局版)
 // @namespace    http://tampermonkey.net/
-// @version      5.4.0
-// @description  在零一 AIGC 网页上采用 DOM 顶层动态提升与 Window Capture 捕获拖拽，彻底解决全屏 Modal 遮挡无法拖动问题
+// @version      5.5.0
+// @description  在零一 AIGC 网页上采用 DOM 顶层动态提升与 Window Capture 捕获拖拽，彻底解决全屏 Modal 遮挡无法拖动问题，并支持大图预览自动折叠与禁用保护
 // @author       Antigravity
 // @match        *://aigc.zeroaigen.cn/*
 // @match        *://*.zeroaigen.cn/*
@@ -14,11 +14,20 @@
 (function () {
   'use strict';
 
-  console.log('[ZeroAIGen Floating Widget v5.4.0] DOM顶层重叠与捕获拖拽破局版已加载！');
+  console.log('[ZeroAIGen Floating Widget v5.5.0] 大图/视频预览自动折叠与禁用保护版已加载！');
 
   // 0. 判断当前页面 URL 是否属于 type=VIDEO 模式
   function isVideoMode() {
     return /[?&]type=VIDEO\b/i.test(window.location.href);
+  }
+
+  // 判断当前页面是否正处于【资产详情/大图/视频预览弹窗】模式
+  let wasInPreview = false;
+  function isPreviewMode() {
+    const overlay = document.querySelector('div[data-slot="dialog-overlay"][data-state="open"]');
+    const dialog = document.querySelector('div[role="dialog"][data-state="open"]');
+    const assetDetail = document.querySelector('.asset-detail');
+    return !!(overlay || dialog || assetDetail);
   }
 
   // 1. CSS 样式 (使用 isolation: isolate 与 pointer-events: auto 强制置顶)
@@ -382,6 +391,13 @@
 
     if (!countValueEl) return;
 
+    const inPreview = isPreviewMode();
+
+    if (inPreview) {
+      if (runBtn) runBtn.disabled = true;
+      if (statusTextEl) statusTextEl.innerText = '⚠️ 处于大图/视频预览中，关联已禁用';
+    }
+
     const { totalUnlinked, validCount, invalidCount, hasAssets, uploadedAssets, missingTags } = detectUnlinkedMentions();
 
     if (assetsTagsEl) {
@@ -408,6 +424,8 @@
         missingTagsBarEl.style.display = 'none';
       }
     }
+
+    if (inPreview) return;
 
     if (!hasAssets) {
       if (totalUnlinked > 0) {
@@ -494,23 +512,43 @@
     if (!isVideo) {
       if (widget) widget.style.display = 'none';
       if (minBadge) minBadge.style.display = 'none';
+      wasInPreview = false;
       return;
     }
 
     if (!widget) {
       createFloatingWidget();
-    } else {
-      // 保持 DOM 物理层级始终处于 document.body 的最后一位（避免被 React Modal Portal 遮挡）
-      if (document.body.lastElementChild !== widget && document.body.lastElementChild !== minBadge) {
-        document.body.appendChild(widget);
-        if (minBadge) document.body.appendChild(minBadge);
-      }
+      return;
+    }
 
-      if (minBadge && minBadge.style.display === 'flex') {
+    // 保持 DOM 物理层级始终处于 document.body 的最后一位（避免被 React Modal Portal 遮挡）
+    if (document.body.lastElementChild !== widget && document.body.lastElementChild !== minBadge) {
+      document.body.appendChild(widget);
+      if (minBadge) document.body.appendChild(minBadge);
+    }
+
+    const inPreview = isPreviewMode();
+
+    if (inPreview) {
+      // 首次进入大图/视频预览弹窗：自动折叠收起悬浮窗口为右侧⚡小球
+      if (!wasInPreview) {
+        wasInPreview = true;
         widget.style.display = 'none';
-      } else {
-        widget.style.display = 'block';
+        minBadge.style.display = 'flex';
       }
+    } else {
+      // 首次退出大图/视频预览弹窗：自动展开恢复原面板，且原有坐标位置保持不变
+      if (wasInPreview) {
+        wasInPreview = false;
+        widget.style.display = 'block';
+        minBadge.style.display = 'none';
+      }
+    }
+
+    if (minBadge && minBadge.style.display === 'flex') {
+      widget.style.display = 'none';
+    } else {
+      widget.style.display = 'block';
     }
 
     updateDetectionUI();
@@ -706,6 +744,13 @@
   async function runAutoMentionStream() {
     const runBtn = document.getElementById('zero-widget-action-btn');
     const statusText = document.getElementById('zero-widget-status');
+
+    if (isPreviewMode()) {
+      showToast('⚠️ 当前处于大图/视频预览中，无法执行关联操作');
+      if (statusText) statusText.innerText = '⚠️ 处于大图/视频预览中，关联已禁用';
+      return;
+    }
+
     const editor = document.querySelector('[contenteditable="true"]') || document.querySelector('textarea');
 
     if (!editor) {
