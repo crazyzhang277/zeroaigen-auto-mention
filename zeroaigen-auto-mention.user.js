@@ -1,8 +1,8 @@
 // ==UserScript==
-// @name         ZeroAIGen @主体标签一键关联工具(Slate物理事件与React18渲染适配版)
+// @name         ZeroAIGen @主体标签一键关联工具(7.0.0 完整精准识别与全量转换终极版)
 // @namespace    http://tampermonkey.net/
-// @version      6.1.0
-// @description  在零一 AIGC 网页上精准触发 Slate.js 物理 mousedown/mouseup 事件并适配 React18 渲染延迟，确保一键成功关联所有@标签
+// @version      7.0.0
+// @description  完美兼容带副标题素材识别(@图1 太极)，采用@+Tag重打触发与Slate物理事件精准关联
 // @author       Antigravity
 // @match        *://aigc.zeroaigen.cn/*
 // @match        *://*.zeroaigen.cn/*
@@ -14,7 +14,7 @@
 (function () {
   'use strict';
 
-  console.log('[ZeroAIGen Floating Widget v6.1.0] Slate物理事件与React18适配版已加载！');
+  console.log('[ZeroAIGen Floating Widget v7.0.0] 完整精准识别与全量转换终极版已加载！');
 
   // 0. 判断当前页面 URL 是否属于 type=VIDEO 模式
   function isVideoMode() {
@@ -33,14 +33,14 @@
     return null;
   }
 
-  // 精准判断用户是否正处于大图视频放大预览 Modal 界面
+  // 判断用户是否正处于大图视频放大预览 Modal 界面
   function isVideoPreviewModalOpen() {
     const hasModalOrDrawer = document.querySelector('.ant-modal, .ant-drawer, [class*="modal"], [class*="drawer"], [class*="viewer"]') !== null;
     const hasVideoPlayer = document.querySelector('video') !== null;
     return hasModalOrDrawer && hasVideoPlayer;
   }
 
-  // 1. CSS 样式 (保持最顶层 z-index 与 isolation，支持顺畅拖拽)
+  // 1. CSS 样式 (最高层级 z-index，完全顺畅拖拽与防打扰)
   const style = `
     #zero-floating-widget {
       position: fixed;
@@ -318,13 +318,13 @@
 
   const TAG_REGEX = /(?:@|＠)(图\d+|音频\d+|视频\d+|镜头\d+|角色\d+|主体\d+|素材\d+)/g;
 
-  // 2. 检索页面顶部【已上传素材栏】
+  // 2. 检索页面顶部【已上传素材栏】(完美兼容含副标题的素材卡片如 "@图1 太极")
   function getOnlyUploadedAssets() {
     const availableTags = new Set();
     const editor = getActiveEditor();
     const widget = document.getElementById('zero-floating-widget');
 
-    const allElems = document.body.querySelectorAll('div, span, p, b, label, strong');
+    const allElems = document.body.querySelectorAll('div, span, p, b, label, strong, a');
 
     for (let i = 0; i < allElems.length; i++) {
       const el = allElems[i];
@@ -333,10 +333,10 @@
 
       if (el.children.length === 0 && el.innerText) {
         const text = el.innerText.trim();
-        if (text.length <= 12) {
-          const m = /^(?:@|＠)?(图\d+|音频\d+|视频\d+|镜头\d+|角色\d+|主体\d+|素材\d+)$/.exec(text);
-          if (m) {
-            availableTags.add(m[1]);
+        if (text.length <= 30) {
+          const matches = Array.from(text.matchAll(/(?:@|＠)?(图\d+|音频\d+|视频\d+|镜头\d+|角色\d+|主体\d+|素材\d+)/g));
+          for (let k = 0; k < matches.length; k++) {
+            availableTags.add(matches[k][1]);
           }
         }
       }
@@ -469,9 +469,8 @@
     }
   }
 
-  // 5. 模拟弹窗确认与 DOM 物理事件 (适配 Slate.js 的 mousedown + React18 异步渲染)
+  // 5. 模拟 Mention 下拉弹窗确认与 Slate 物理 mousedown 事件派发
   async function confirmCandidatePopover(editor, cleanTag) {
-    // 给予 React 18 充分的时间 (70ms) 渲染 Mention 候选下拉框
     await sleep(70);
 
     const dropdowns = document.querySelectorAll(
@@ -484,21 +483,20 @@
         for (let j = 0; j < items.length; j++) {
           const item = items[j];
           if (item.innerText && item.innerText.includes(cleanTag)) {
-            // Slate.js 必须要派发物理 mousedown + mouseup + click 才能选中选项！
-            const mouseOpts = { bubbles: true, cancelable: true, view: window };
-            item.dispatchEvent(new MouseEvent('mousedown', mouseOpts));
-            item.dispatchEvent(new MouseEvent('mouseup', mouseOpts));
-            item.dispatchEvent(new MouseEvent('click', mouseOpts));
+            const opts = { bubbles: true, cancelable: true, view: window };
+            item.dispatchEvent(new MouseEvent('mousedown', opts));
+            item.dispatchEvent(new MouseEvent('mouseup', opts));
+            item.dispatchEvent(new MouseEvent('click', opts));
             await sleep(60);
             return true;
           }
         }
         const active = dd.querySelector('[class*="active"], [class*="selected"], [aria-selected="true"]');
         if (active) {
-          const mouseOpts = { bubbles: true, cancelable: true, view: window };
-          active.dispatchEvent(new MouseEvent('mousedown', mouseOpts));
-          active.dispatchEvent(new MouseEvent('mouseup', mouseOpts));
-          active.dispatchEvent(new MouseEvent('click', mouseOpts));
+          const opts = { bubbles: true, cancelable: true, view: window };
+          active.dispatchEvent(new MouseEvent('mousedown', opts));
+          active.dispatchEvent(new MouseEvent('mouseup', opts));
+          active.dispatchEvent(new MouseEvent('click', opts));
           await sleep(60);
           return true;
         }
@@ -512,7 +510,7 @@
 
     const evEnter = new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', keyCode: 13, bubbles: true, cancelable: true });
     editor.dispatchEvent(evEnter);
-    await sleep(50);
+    await sleep(60);
 
     return false;
   }
@@ -730,7 +728,7 @@
     }, true);
   }
 
-  // 9. 一键全量转换 (一次点击连续完成所有有效标签关联)
+  // 9. 一键全量转换 (重新触发 @+Tag 关联)
   async function runAutoMentionStream() {
     const runBtn = document.getElementById('zero-widget-action-btn');
     const statusText = document.getElementById('zero-widget-status');
@@ -825,14 +823,16 @@
 
           editor.focus();
 
-          document.execCommand('insertText', false, matchText.slice(0, -1));
-          await sleep(25);
+          // 重新打字：先删掉原文本，再打字 @，触发 Slate Mention 插件弹出
+          document.execCommand('insertText', false, '@');
+          await sleep(40);
 
-          document.execCommand('insertText', false, matchText.slice(-1));
+          document.execCommand('insertText', false, cleanTag);
+          await sleep(80);
 
-          // 调用全新的 Slate 物理 mousedown/mouseup/click 事件确认引擎
+          // 触发选中 Slate 候选列表项
           await confirmCandidatePopover(editor, cleanTag);
-          await sleep(50);
+          await sleep(60);
 
           let postCheck = detectUnlinkedMentions();
           if (postCheck.validCount >= preValidCount) {
