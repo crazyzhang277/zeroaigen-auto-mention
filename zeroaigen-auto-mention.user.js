@@ -1,8 +1,8 @@
 // ==UserScript==
-// @name         ZeroAIGen @主体标签一键关联工具(遮罩精确判空与编辑态双重精准匹配版)
+// @name         ZeroAIGen @主体标签一键关联工具(6.0.0 终极全功能稳定版)
 // @namespace    http://tampermonkey.net/
-// @version      5.6.0
-// @description  在零一 AIGC 网页上精准区分正常创作编辑页面与全屏大图预览 Modal，在创作页正常解锁启用，仅在真实弹窗遮罩下禁用保护
+// @version      6.0.0
+// @description  在零一 AIGC 网页上常驻完美展示双色素材面板，在预览大图下防误触提示，支持 PointerCapture 全层级顺畅拖拽
 // @author       Antigravity
 // @match        *://aigc.zeroaigen.cn/*
 // @match        *://*.zeroaigen.cn/*
@@ -14,42 +14,14 @@
 (function () {
   'use strict';
 
-  console.log('[ZeroAIGen Floating Widget v5.6.0] 遮罩精准判空与编辑态双重精准匹配版已加载！');
+  console.log('[ZeroAIGen Floating Widget v6.0.0] 终极全功能稳定版已加载！');
 
   // 0. 判断当前页面 URL 是否属于 type=VIDEO 模式
   function isVideoMode() {
     return /[?&]type=VIDEO\b/i.test(window.location.href);
   }
 
-  // 获取当前可见且可编辑的提示词输入框
-  function getActiveEditor() {
-    const editors = document.querySelectorAll('[contenteditable="true"], textarea');
-    for (let i = 0; i < editors.length; i++) {
-      const ed = editors[i];
-      if (ed.offsetWidth > 0 && ed.offsetHeight > 0 && !ed.hasAttribute('disabled') && ed.getAttribute('aria-disabled') !== 'true') {
-        return ed;
-      }
-    }
-    return null;
-  }
-
-  // 精准判断用户是否真正弹出了全屏大图/视频预览 Modal 遮罩层
-  function isVideoPreviewModalOpen() {
-    // 只有当页面真正弹出了可视、透明度大于 0 的遮罩层 (Mask) 时，才认定为处于大图预览弹窗状态
-    const masks = document.querySelectorAll('.ant-modal-mask, .ant-drawer-mask, [class*="modal-mask"], [class*="drawer-mask"], [class*="preview-mask"]');
-    for (let i = 0; i < masks.length; i++) {
-      const m = masks[i];
-      if (m.offsetWidth > 0 && m.offsetHeight > 0) {
-        const st = window.getComputedStyle(m);
-        if (st.display !== 'none' && st.visibility !== 'hidden' && parseFloat(st.opacity || '1') > 0.2) {
-          return true;
-        }
-      }
-    }
-    return false;
-  }
-
-  // 1. CSS 样式
+  // 1. CSS 样式 (使用最高 z-index 与 isolation 隔离，确保绝不被盖住，全屏随意拖拽)
   const style = `
     #zero-floating-widget {
       position: fixed;
@@ -330,7 +302,7 @@
   // 2. 检索页面顶部【已上传素材栏】
   function getOnlyUploadedAssets() {
     const availableTags = new Set();
-    const editor = getActiveEditor();
+    const editor = document.querySelector('[contenteditable="true"]') || document.querySelector('textarea');
     const widget = document.getElementById('zero-floating-widget');
 
     const allElems = document.body.querySelectorAll('div, span, p, b, label, strong');
@@ -356,7 +328,7 @@
 
   // 3. 统计可转换标签及未上传标签
   function detectUnlinkedMentions() {
-    const editor = getActiveEditor();
+    const editor = document.querySelector('[contenteditable="true"]') || document.querySelector('textarea');
     const uploadedAssets = getOnlyUploadedAssets();
     const hasAssets = uploadedAssets.size > 0;
 
@@ -399,7 +371,7 @@
     };
   }
 
-  // 4. 更新检测 UI 界面
+  // 4. 更新检测 UI 界面（稳定完整渲染所有按钮与绿/橙胶囊）
   function updateDetectionUI() {
     const countValueEl = document.getElementById('zero-detection-count');
     const statusTextEl = document.getElementById('zero-widget-status');
@@ -410,26 +382,9 @@
 
     if (!countValueEl) return;
 
-    // 严谨判断：只有当真正弹出了可全屏覆盖的预览 Mask 遮罩时，才判定为放大预览弹窗
-    const isModalOpen = isVideoPreviewModalOpen();
-
-    if (isModalOpen) {
-      if (runBtn) {
-        runBtn.disabled = true;
-        runBtn.innerHTML = '<span>🚫</span> 预览模式 (禁止关联)';
-        runBtn.title = '当前处于视频放大预览弹窗，无法关联标签';
-      }
-      if (statusTextEl) {
-        statusTextEl.innerText = '⚠️ 处于放大预览模式，已禁用关联按钮';
-      }
-      countValueEl.innerText = '预览模式 (禁用)';
-      countValueEl.className = 'zero-detection-value warn';
-      return;
-    }
-
-    // 正常创作编辑页面逻辑
     const { totalUnlinked, validCount, invalidCount, hasAssets, uploadedAssets, missingTags } = detectUnlinkedMentions();
 
+    // 1. 展示已上传素材（绿色胶囊）
     if (assetsTagsEl) {
       if (uploadedAssets && uploadedAssets.size > 0) {
         const sorted = Array.from(uploadedAssets).sort((a, b) =>
@@ -441,6 +396,7 @@
       }
     }
 
+    // 2. 展示未上传素材（橙色警告胶囊）
     if (missingTagsBarEl && missingTagsWrapperEl) {
       if (missingTags && missingTags.size > 0) {
         missingTagsBarEl.style.display = 'flex';
@@ -455,26 +411,16 @@
       }
     }
 
-    // 正常创作页面：恢复按钮高亮与可点击
-    if (runBtn) {
-      runBtn.disabled = false;
-      runBtn.innerHTML = '<span>⚡</span> <span>一键关联 @标签</span>';
-      runBtn.title = '';
-    }
-
+    // 3. 正常状态指示
     if (!hasAssets) {
       if (totalUnlinked > 0) {
         countValueEl.innerText = `未上传素材 (0/${totalUnlinked}可转换)`;
         countValueEl.className = 'zero-detection-value warn';
-        if (statusTextEl && (!runBtn || !runBtn.disabled)) {
-          statusTextEl.innerText = '⚠️ 页面未上传素材，无法关联';
-        }
+        if (statusTextEl) statusTextEl.innerText = '⚠️ 页面未上传素材，无法关联';
       } else {
         countValueEl.innerText = '无未关联标签';
         countValueEl.className = 'zero-detection-value empty';
-        if (statusTextEl && (!runBtn || !runBtn.disabled)) {
-          statusTextEl.innerText = '提示：请先在页面上传素材';
-        }
+        if (statusTextEl) statusTextEl.innerText = '提示：请先在页面上传素材';
       }
       return;
     }
@@ -486,19 +432,19 @@
         countValueEl.innerText += ` (${invalidCount}个未上传不替换)`;
         countValueEl.className = 'zero-detection-value warn';
       }
-      if (statusTextEl && (!runBtn || !runBtn.disabled)) {
+      if (statusTextEl && runBtn && !runBtn.disabled) {
         statusTextEl.innerText = `点击一键转换 ${validCount} 个有效标签`;
       }
     } else if (invalidCount > 0) {
       countValueEl.innerText = `0 可关联 (${invalidCount}个未上传不替换)`;
       countValueEl.className = 'zero-detection-value warn';
-      if (statusTextEl && (!runBtn || !runBtn.disabled)) {
+      if (statusTextEl && runBtn && !runBtn.disabled) {
         statusTextEl.innerText = '提示：未上传素材标签保留原样不替换';
       }
     } else {
       countValueEl.innerText = '0 个 (已全部关联)';
       countValueEl.className = 'zero-detection-value empty';
-      if (statusTextEl && (!runBtn || !runBtn.disabled)) {
+      if (statusTextEl && runBtn && !runBtn.disabled) {
         statusTextEl.innerText = '文本框暂无未关联标签';
       }
     }
@@ -538,7 +484,7 @@
     return false;
   }
 
-  // 6. UI 面板创建与 type=VIDEO 模式纯净管控
+  // 6. UI 面板创建与 type=VIDEO 模式纯净管控 (常驻无闪隐)
   function checkModeAndUpdateUI() {
     const widget = document.getElementById('zero-floating-widget');
     const minBadge = document.getElementById('zero-minimized-badge');
@@ -553,6 +499,7 @@
     if (!widget) {
       createFloatingWidget();
     } else {
+      // 保持 DOM 物理层级始终处于 document.body 的最顶层（解决大图 Modal 遮挡）
       if (document.body.lastElementChild !== widget && document.body.lastElementChild !== minBadge) {
         document.body.appendChild(widget);
         if (minBadge) document.body.appendChild(minBadge);
@@ -636,7 +583,7 @@
     updateDetectionUI();
   }
 
-  // 7. 终极 DOM 重叠提升 + Window Capture 拖拽引擎
+  // 7. 终极 DOM 重叠提升 + Window Capture 拖拽引擎 (击穿大图遮罩)
   function makeUltimateTopDraggable(elmnt, dragHandle) {
     let startX = 0, startY = 0, initialLeft = 0, initialTop = 0;
 
@@ -737,8 +684,8 @@
           elmnt.releasePointerCapture(ev.pointerId);
         } catch (_) {}
         window.removeEventListener('pointermove', onPointerMove, true);
-        window.removeEventListener('pointerup', onPointerUp, true);
-        window.removeEventListener('pointercancel', onPointerUp, true);
+        window.removeEventListener('pointerup', onPointerUp, { capture: true, once: true });
+        window.removeEventListener('pointercancel', onPointerUp, { capture: true, once: true });
 
         if (!isMoved) {
           onClickCallback();
@@ -751,17 +698,22 @@
     }, true);
   }
 
-  // 9. 一键全量转换
+  // 9. 一键全量转换 (点击时精准检测：若处于大图预览，安全提示阻断，绝不上屏闪烁)
   async function runAutoMentionStream() {
     const runBtn = document.getElementById('zero-widget-action-btn');
     const statusText = document.getElementById('zero-widget-status');
 
-    if (isVideoPreviewModalOpen()) {
-      showToast('⚠️ 当前处于放大预览模式，无法在预览界面执行关联！');
+    // 精准防闪烁阻断：检查用户是否正处于大图 Modal 预览界面
+    const isModalPreview = document.querySelector('.ant-modal, .ant-drawer, [class*="modal"], [class*="drawer"], [class*="viewer"]') !== null &&
+                           document.querySelector('video') !== null;
+
+    if (isModalPreview) {
+      showToast('ℹ️ 当前处于视频放大预览界面，请先关闭大图预览再关联！');
+      if (statusText) statusText.innerText = '⚠️ 大图预览中，已安全阻断点击';
       return;
     }
 
-    const editor = getActiveEditor();
+    const editor = document.querySelector('[contenteditable="true"]') || document.querySelector('textarea');
     if (!editor) {
       showToast('❌ 未找到可编辑的提示词文本框！');
       return;
@@ -889,6 +841,6 @@
     }
   }
 
-  // 1 秒轮询
+  // 1 秒轻量轮询，常驻无闪隐
   setInterval(checkModeAndUpdateUI, 1000);
 })();
