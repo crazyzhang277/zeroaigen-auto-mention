@@ -1,8 +1,8 @@
 // ==UserScript==
-// @name         ZeroAIGen @主体标签一键关联工具(7.1.0 油猴 Window 代理沙箱修复版)
+// @name         ZeroAIGen @主体标签一键关联工具(7.2.0 全局 Window/Document 回车与 Tab 双轮确认终极版)
 // @namespace    http://tampermonkey.net/
-// @version      7.1.0
-// @description  修正 Tampermonkey 沙箱下 MouseEvent view 视图代理类型报错，彻底解决一键关联报错问题
+// @version      7.2.0
+// @description  全方位对 Window、Document、Slate Editor 派发 Enter/Tab 键盘事件与 Pointer/Mouse 物理点击，彻底解决未按回车问题
 // @author       Antigravity
 // @match        *://aigc.zeroaigen.cn/*
 // @match        *://*.zeroaigen.cn/*
@@ -14,7 +14,7 @@
 (function () {
   'use strict';
 
-  console.log('[ZeroAIGen Floating Widget v7.1.0] 油猴 Window 代理沙箱修复版已加载！');
+  console.log('[ZeroAIGen Floating Widget v7.2.0] 全局回车与 Tab 双轮确认终极版已加载！');
 
   // 0. 判断当前页面 URL 是否属于 type=VIDEO 模式
   function isVideoMode() {
@@ -469,52 +469,91 @@
     }
   }
 
-  // 5. 模拟 Mention 下拉弹窗确认与 Slate 物理 mousedown 事件派发 (纯净沙箱规范)
+  // 5. 全局按键与 DOM 候选点击确认引擎 (解决未按回车)
   async function confirmCandidatePopover(editor, cleanTag) {
-    await sleep(70);
+    await sleep(80);
 
-    const dropdowns = document.querySelectorAll(
-      '[class*="dropdown"], [class*="popover"], [class*="mention"], [class*="select"], [class*="listbox"], [role="listbox"], [role="menu"]'
+    const active = document.activeElement || editor;
+
+    // 派发键盘事件辅助函数
+    function pressKey(target, keyName, codeNum) {
+      if (!target) return;
+      const init = {
+        key: keyName,
+        code: keyName,
+        keyCode: codeNum,
+        which: codeNum,
+        charCode: codeNum,
+        bubbles: true,
+        cancelable: true,
+        composed: true
+      };
+      target.dispatchEvent(new KeyboardEvent('keydown', init));
+      target.dispatchEvent(new KeyboardEvent('keypress', init));
+      target.dispatchEvent(new KeyboardEvent('keyup', init));
+    }
+
+    // 派发全套 Mouse & Pointer 物理点击辅助函数
+    function clickEl(el) {
+      if (!el) return;
+      const opts = { bubbles: true, cancelable: true };
+      el.dispatchEvent(new PointerEvent('pointerdown', opts));
+      el.dispatchEvent(new MouseEvent('mousedown', opts));
+      el.dispatchEvent(new MouseEvent('mouseup', opts));
+      el.dispatchEvent(new PointerEvent('pointerup', opts));
+      el.dispatchEvent(new MouseEvent('click', opts));
+      if (typeof el.click === 'function') {
+        try { el.click(); } catch (_) {}
+      }
+    }
+
+    // 策略 1：全方位检索所有 Popover / Floating / Dropdown 下拉层
+    const overlays = document.querySelectorAll(
+      '[class*="dropdown"], [class*="popover"], [class*="mention"], [class*="select"], [class*="portal"], [class*="listbox"], [class*="menu"], [class*="option"], [role="listbox"], [role="menu"], [role="option"], div[style*="position: absolute"], div[style*="position: fixed"]'
     );
-    for (let i = 0; i < dropdowns.length; i++) {
-      const dd = dropdowns[i];
-      if (dd.offsetWidth > 0 && dd.offsetHeight > 0) {
-        const items = dd.querySelectorAll('li, div, span, p, [role="option"]');
+
+    let clickedAny = false;
+
+    for (let i = 0; i < overlays.length; i++) {
+      const container = overlays[i];
+      if (container.id === 'zero-floating-widget' || container.closest('#zero-floating-widget')) continue;
+
+      if (container.offsetWidth > 0 && container.offsetHeight > 0) {
+        const items = container.querySelectorAll('li, div, span, p, a, [role="option"]');
         for (let j = 0; j < items.length; j++) {
           const item = items[j];
-          if (item.innerText && item.innerText.includes(cleanTag)) {
-            // 油猴沙箱修复：去除 view: window，使用纯净的 MouseEvent 初始化字典
-            const mouseOpts = { bubbles: true, cancelable: true };
-            item.dispatchEvent(new MouseEvent('mousedown', mouseOpts));
-            item.dispatchEvent(new MouseEvent('mouseup', mouseOpts));
-            item.dispatchEvent(new MouseEvent('click', mouseOpts));
-            if (typeof item.click === 'function') item.click();
-            await sleep(60);
-            return true;
+          if (item.children.length <= 2 && item.innerText && item.innerText.includes(cleanTag)) {
+            clickEl(item);
+            clickedAny = true;
           }
         }
-        const active = dd.querySelector('[class*="active"], [class*="selected"], [aria-selected="true"]');
-        if (active) {
-          const mouseOpts = { bubbles: true, cancelable: true };
-          active.dispatchEvent(new MouseEvent('mousedown', mouseOpts));
-          active.dispatchEvent(new MouseEvent('mouseup', mouseOpts));
-          active.dispatchEvent(new MouseEvent('click', mouseOpts));
-          if (typeof active.click === 'function') active.click();
-          await sleep(60);
-          return true;
+        if (!clickedAny) {
+          const activeOpt = container.querySelector('[class*="active"], [class*="selected"], [aria-selected="true"]');
+          if (activeOpt) {
+            clickEl(activeOpt);
+            clickedAny = true;
+          }
         }
       }
     }
 
-    // 备用方案：模拟键盘下箭头 + 回车确认
-    const evDown = new KeyboardEvent('keydown', { key: 'ArrowDown', code: 'ArrowDown', keyCode: 40, bubbles: true, cancelable: true });
-    editor.dispatchEvent(evDown);
-    await sleep(35);
+    if (clickedAny) {
+      await sleep(80);
+      return true;
+    }
 
-    const evEnter = new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', keyCode: 13, bubbles: true, cancelable: true });
-    editor.dispatchEvent(evEnter);
-    await sleep(60);
+    // 策略 2：全方位给 activeElement、editor、document、window 派发【下下箭头 + 回车 + Tab】三连击！
+    const targets = [active, editor, document.body, window];
 
+    for (let k = 0; k < targets.length; k++) {
+      const t = targets[k];
+      pressKey(t, 'ArrowDown', 40);
+      await sleep(25);
+      pressKey(t, 'Enter', 13);
+      pressKey(t, 'Tab', 9);
+    }
+
+    await sleep(80);
     return false;
   }
 
@@ -832,6 +871,7 @@
           document.execCommand('insertText', false, cleanTag);
           await sleep(80);
 
+          // 全局双轮确认：全方位点击 DOM 浮动层 + 全局 Window/Document 派发 Enter/Tab
           await confirmCandidatePopover(editor, cleanTag);
           await sleep(60);
 
