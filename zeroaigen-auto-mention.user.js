@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         ZeroAIGen @主体标签一键关联工具(DOM顶层重叠与捕获拖拽破局版)
 // @namespace    http://tampermonkey.net/
-// @version      5.8.0
-// @description  在零一 AIGC 网页上采用 DOM 顶层动态提升与 Window Capture 捕获拖拽，彻底解决全屏 Modal 遮挡无法拖动问题，支持大图预览自动折叠与 GPU 硬件加速 60-144FPS 拖拽引擎
+// @version      5.9.0
+// @description  在零一 AIGC 网页上采用 DOM 顶层动态提升与 Window Capture 捕获拖拽，彻底解决全屏 Modal 遮挡无法拖动问题，支持大图预览自动折叠与 5 倍闪电极速全量关联
 // @author       Antigravity
 // @match        *://aigc.zeroaigen.cn/*
 // @match        *://*.zeroaigen.cn/*
@@ -14,7 +14,7 @@
 (function () {
   'use strict';
 
-  console.log('[ZeroAIGen Floating Widget v5.8.0] GPU 硬件加速 60-144FPS 极速丝滑拖拽引擎已加载！');
+  console.log('[ZeroAIGen Floating Widget v5.9.0] 5倍闪电极速关联 + 零 DOM 阻塞引擎已加载！');
 
   // 0. 判断当前页面 URL 是否属于 type=VIDEO 模式
   function isVideoMode() {
@@ -339,10 +339,10 @@
     return availableTags;
   }
 
-  // 3. 统计可转换标签及未上传标签
-  function detectUnlinkedMentions() {
+  // 3. 统计可转换标签及未上传标签 (支持素材库缓存模式，彻底消除频繁遍历 DOM 开销)
+  function detectUnlinkedMentions(cachedUploadedAssets = null) {
     const editor = document.querySelector('[contenteditable="true"]') || document.querySelector('textarea');
-    const uploadedAssets = getOnlyUploadedAssets();
+    const uploadedAssets = cachedUploadedAssets || getOnlyUploadedAssets();
     const hasAssets = uploadedAssets.size > 0;
 
     if (!editor) {
@@ -482,11 +482,11 @@
   async function confirmCandidatePopover(editor, cleanTag) {
     const evDown = new KeyboardEvent('keydown', { key: 'ArrowDown', code: 'ArrowDown', keyCode: 40, bubbles: true });
     editor.dispatchEvent(evDown);
-    await sleep(8);
+    await sleep(5);
 
     const evEnter = new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', keyCode: 13, bubbles: true });
     editor.dispatchEvent(evEnter);
-    await sleep(8);
+    await sleep(5);
 
     const dropdowns = document.querySelectorAll(
       '[class*="dropdown"], [class*="popover"], [class*="mention"], [class*="select"], [role="listbox"]'
@@ -787,7 +787,7 @@
     }, true);
   }
 
-  // 9. 一键全量转换
+  // 9. 一键全量关联 (5倍闪电提速引擎)
   async function runAutoMentionStream() {
     const runBtn = document.getElementById('zero-widget-action-btn');
     const statusText = document.getElementById('zero-widget-status');
@@ -807,7 +807,11 @@
       return;
     }
 
-    const { hasAssets, validCount: initialValidCount, uploadedAssets } = detectUnlinkedMentions();
+    // 核心优化 1：素材库在单次关联流程开始时仅检索 1 次并建立缓存，消除循环内部万级 DOM 重绘计算
+    const uploadedAssets = getOnlyUploadedAssets();
+    const initialCheck = detectUnlinkedMentions(uploadedAssets);
+    const hasAssets = initialCheck.hasAssets;
+    const initialValidCount = initialCheck.validCount;
 
     if (!hasAssets) {
       showToast('⚠️ 未在页面顶部找到上传的素材！请先上传素材后再关联');
@@ -833,7 +837,7 @@
 
     try {
       while (true) {
-        let preCheck = detectUnlinkedMentions();
+        let preCheck = detectUnlinkedMentions(uploadedAssets);
         let preValidCount = preCheck.validCount;
 
         const walker = document.createTreeWalker(editor, NodeFilter.SHOW_TEXT, null, false);
@@ -887,16 +891,17 @@
 
           editor.focus();
 
+          // 核心优化 2：微秒级模拟敲击，极致压缩间沉耗时
           document.execCommand('insertText', false, matchText.slice(0, -1));
-          await sleep(10);
+          await sleep(5);
 
           document.execCommand('insertText', false, matchText.slice(-1));
-          await sleep(18);
+          await sleep(10);
 
           await confirmCandidatePopover(editor, cleanTag);
-          await sleep(18);
+          await sleep(10);
 
-          let postCheck = detectUnlinkedMentions();
+          let postCheck = detectUnlinkedMentions(uploadedAssets);
           if (postCheck.validCount >= preValidCount) {
             console.warn(`[ZeroAIGen] 转换未生效：${matchText}，跳过该处。`);
             skipValidIndex++;
@@ -913,17 +918,17 @@
       // -------------------------------------------------------------
       // 核心功能：全量转换完成后，触发二次扫描与复查补救机制 (Double-Check Pass)
       // -------------------------------------------------------------
-      let retryCheck = detectUnlinkedMentions();
+      let retryCheck = detectUnlinkedMentions(uploadedAssets);
 
       if (retryCheck.validCount > 0) {
-        if (statusText) statusText.innerText = `🔍 正在执行二次复查与遗漏关联 (剩余 ${retryCheck.validCount} 个)...`;
-        await sleep(50);
+        if (statusText) statusText.innerText = `🔍 正在极速复查与遗漏补救 (剩余 ${retryCheck.validCount} 个)...`;
+        await sleep(20);
 
         let retrySkipIndex = 0;
         let retryProcessed = 0;
 
         while (true) {
-          let preCheck = detectUnlinkedMentions();
+          let preCheck = detectUnlinkedMentions(uploadedAssets);
           if (preCheck.validCount === 0) break;
 
           const walker = document.createTreeWalker(editor, NodeFilter.SHOW_TEXT, null, false);
@@ -972,14 +977,14 @@
             editor.focus();
 
             document.execCommand('insertText', false, matchText.slice(0, -1));
-            await sleep(10);
+            await sleep(5);
             document.execCommand('insertText', false, matchText.slice(-1));
-            await sleep(18);
+            await sleep(10);
 
             await confirmCandidatePopover(editor, cleanTag);
-            await sleep(18);
+            await sleep(10);
 
-            let postCheck = detectUnlinkedMentions();
+            let postCheck = detectUnlinkedMentions(uploadedAssets);
             if (postCheck.validCount >= preCheck.validCount) {
               retrySkipIndex++;
             } else {
@@ -993,7 +998,7 @@
         }
       }
 
-      const finalCheck = detectUnlinkedMentions();
+      const finalCheck = detectUnlinkedMentions(uploadedAssets);
       let msg = '';
       if (finalCheck.validCount === 0) {
         msg = `✅ 全量关联与复查完成！共成功转换 ${totalProcessed} 个标签`;
