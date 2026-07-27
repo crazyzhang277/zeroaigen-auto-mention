@@ -1,8 +1,8 @@
 // ==UserScript==
-// @name         ZeroAIGen @主体标签一键关联工具(已上传与未上传素材双向可视化版)
+// @name         ZeroAIGen @主体标签一键关联工具(双向自由拖拽版)
 // @namespace    http://tampermonkey.net/
-// @version      4.6.0
-// @description  在零一/aigc.zeroaigen.cn 网页悬浮窗上同时可视化展示【已上传素材(绿色)】与【未上传素材(橙色保留项)】
+// @version      4.7.0
+// @description  在零一/aigc.zeroaigen.cn 网页上主控制面板与最小化球形图标均支持全屏任意拖拽，完美区分拖拽与点击
 // @author       Antigravity
 // @match        *://aigc.zeroaigen.cn/*
 // @grant        GM_addStyle
@@ -12,7 +12,7 @@
 (function () {
   'use strict';
 
-  console.log('[ZeroAIGen Floating Widget v4.6.0] 已上传与未上传双向可视化版已加载！');
+  console.log('[ZeroAIGen Floating Widget v4.7.0] 双向自由拖拽版已加载！');
 
   // 1. CSS 样式
   const style = `
@@ -204,27 +204,30 @@
       line-height: 1.4;
     }
 
+    /* 最小化后的悬浮小圆球按钮（支持移动拖拽） */
     #zero-minimized-badge {
       position: fixed;
       top: 120px;
       right: 20px;
-      width: 44px;
-      height: 44px;
+      width: 46px;
+      height: 46px;
       border-radius: 50%;
       background: linear-gradient(135deg, #10b981 0%, #059669 100%);
       color: #fff;
       display: flex;
       align-items: center;
       justify-content: center;
-      font-size: 20px;
-      cursor: pointer;
-      box-shadow: 0 6px 20px rgba(16, 185, 129, 0.4);
+      font-size: 22px;
+      cursor: move;
+      box-shadow: 0 6px 22px rgba(16, 185, 129, 0.5);
       z-index: 9999999;
-      transition: transform 0.2s ease;
+      user-select: none;
+      transition: transform 0.15s ease, box-shadow 0.2s ease;
     }
 
     #zero-minimized-badge:hover {
-      transform: scale(1.1);
+      transform: scale(1.12);
+      box-shadow: 0 8px 28px rgba(16, 185, 129, 0.7);
     }
 
     .zero-mention-toast {
@@ -354,7 +357,6 @@
 
     const { totalUnlinked, validCount, invalidCount, hasAssets, uploadedAssets, missingTags } = detectUnlinkedMentions();
 
-    // 1. 展示【已上传素材胶囊（绿色）】
     if (assetsTagsEl) {
       if (uploadedAssets && uploadedAssets.size > 0) {
         const sorted = Array.from(uploadedAssets).sort((a, b) =>
@@ -366,7 +368,6 @@
       }
     }
 
-    // 2. 展示【未上传素材胶囊（橙色 warning）】
     if (missingTagsBarEl && missingTagsWrapperEl) {
       if (missingTags && missingTags.size > 0) {
         missingTagsBarEl.style.display = 'flex';
@@ -455,7 +456,7 @@
     return false;
   }
 
-  // 6. UI 面板
+  // 6. UI 面板与拖拽逻辑
   function createFloatingWidget() {
     if (document.getElementById('zero-floating-widget')) return;
 
@@ -498,7 +499,7 @@
 
     const minBadge = document.createElement('div');
     minBadge.id = 'zero-minimized-badge';
-    minBadge.title = '打开 @标签关联助手';
+    minBadge.title = '打开 @标签关联助手 (可拖拽移动)';
     minBadge.innerHTML = '⚡';
     minBadge.style.display = 'none';
 
@@ -512,16 +513,19 @@
       minBadge.style.display = 'flex';
     };
 
-    minBadge.onclick = () => {
+    makeDraggable(widget, document.getElementById('zero-widget-drag-handle'));
+    
+    // 给收起后的球形按钮添加拖拽与点击判定支持
+    makeDraggableBadge(minBadge, () => {
       minBadge.style.display = 'none';
       widget.style.display = 'block';
       updateDetectionUI();
-    };
+    });
 
-    makeDraggable(widget, document.getElementById('zero-widget-drag-handle'));
     updateDetectionUI();
   }
 
+  // 7. 主面板拖拽
   function makeDraggable(elmnt, dragHandle) {
     let pos1 = 0, pos2 = 0, pos3 = 0, pos4 = 0;
     dragHandle.onmousedown = dragMouseDown;
@@ -553,7 +557,50 @@
     }
   }
 
-  // 7. 一键全量转换
+  // 8. 收起后球形按钮的拖拽 + 点击判定
+  function makeDraggableBadge(elmnt, onClickCallback) {
+    let pos1 = 0, pos2 = 0, pos3 = 0, pos4 = 0;
+    let isDragging = false;
+    let startX = 0, startY = 0;
+
+    elmnt.onmousedown = (e) => {
+      e = e || window.event;
+      e.preventDefault();
+      isDragging = false;
+      startX = e.clientX;
+      startY = e.clientY;
+      pos3 = e.clientX;
+      pos4 = e.clientY;
+
+      document.onmousemove = (e) => {
+        e = e || window.event;
+        e.preventDefault();
+        const dx = Math.abs(e.clientX - startX);
+        const dy = Math.abs(e.clientY - startY);
+        if (dx > 4 || dy > 4) {
+          isDragging = true;
+        }
+        pos1 = pos3 - e.clientX;
+        pos2 = pos4 - e.clientY;
+        pos3 = e.clientX;
+        pos4 = e.clientY;
+        elmnt.style.top = (elmnt.offsetTop - pos2) + 'px';
+        elmnt.style.left = (elmnt.offsetLeft - pos1) + 'px';
+        elmnt.style.right = 'auto';
+      };
+
+      document.onmouseup = () => {
+        document.onmousemove = null;
+        document.onmouseup = null;
+        // 如果移动距离小于 4 像素，认定为纯点击行为，触发展开面板！
+        if (!isDragging) {
+          onClickCallback();
+        }
+      };
+    };
+  }
+
+  // 9. 一键全量转换
   async function runAutoMentionStream() {
     const runBtn = document.getElementById('zero-widget-action-btn');
     const statusText = document.getElementById('zero-widget-status');
