@@ -7,6 +7,8 @@
 // @match        *://aigc.zeroaigen.cn/*
 // @match        *://*.zeroaigen.cn/*
 // @match        *://zeroaigen.cn/*
+// @updateURL    https://raw.githubusercontent.com/crazyzhang277/zeroaigen-auto-mention/master/zeroaigen-auto-mention.user.js
+// @downloadURL  https://raw.githubusercontent.com/crazyzhang277/zeroaigen-auto-mention/master/zeroaigen-auto-mention.user.js
 // @grant        GM_addStyle
 // @run-at       document-end
 // ==/UserScript==
