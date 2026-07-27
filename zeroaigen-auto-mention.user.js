@@ -1,8 +1,8 @@
 // ==UserScript==
-// @name         ZeroAIGen @主体标签一键关联工具(7.2.0 全局 Window/Document 回车与 Tab 双轮确认终极版)
+// @name         ZeroAIGen @主体标签一键关联工具(DOM顶层重叠与捕获拖拽破局版)
 // @namespace    http://tampermonkey.net/
-// @version      7.2.0
-// @description  全方位对 Window、Document、Slate Editor 派发 Enter/Tab 键盘事件与 Pointer/Mouse 物理点击，彻底解决未按回车问题
+// @version      5.4.0
+// @description  在零一 AIGC 网页上采用 DOM 顶层动态提升与 Window Capture 捕获拖拽，彻底解决全屏 Modal 遮挡无法拖动问题
 // @author       Antigravity
 // @match        *://aigc.zeroaigen.cn/*
 // @match        *://*.zeroaigen.cn/*
@@ -14,33 +14,14 @@
 (function () {
   'use strict';
 
-  console.log('[ZeroAIGen Floating Widget v7.2.0] 全局回车与 Tab 双轮确认终极版已加载！');
+  console.log('[ZeroAIGen Floating Widget v5.4.0] DOM顶层重叠与捕获拖拽破局版已加载！');
 
   // 0. 判断当前页面 URL 是否属于 type=VIDEO 模式
   function isVideoMode() {
     return /[?&]type=VIDEO\b/i.test(window.location.href);
   }
 
-  // 获取当前可见且可编辑的提示词输入框
-  function getActiveEditor() {
-    const editors = document.querySelectorAll('[contenteditable="true"], textarea');
-    for (let i = 0; i < editors.length; i++) {
-      const ed = editors[i];
-      if (ed.offsetWidth > 0 && ed.offsetHeight > 0 && !ed.hasAttribute('disabled') && ed.getAttribute('aria-disabled') !== 'true') {
-        return ed;
-      }
-    }
-    return null;
-  }
-
-  // 判断用户是否正处于大图视频放大预览 Modal 界面
-  function isVideoPreviewModalOpen() {
-    const hasModalOrDrawer = document.querySelector('.ant-modal, .ant-drawer, [class*="modal"], [class*="drawer"], [class*="viewer"]') !== null;
-    const hasVideoPlayer = document.querySelector('video') !== null;
-    return hasModalOrDrawer && hasVideoPlayer;
-  }
-
-  // 1. CSS 样式 (最高层级 z-index，完全顺畅拖拽与防打扰)
+  // 1. CSS 样式 (使用 isolation: isolate 与 pointer-events: auto 强制置顶)
   const style = `
     #zero-floating-widget {
       position: fixed;
@@ -227,10 +208,10 @@
 
     .zero-widget-action-btn:disabled {
       opacity: 0.5;
-      cursor: not-allowed !important;
-      transform: none !important;
-      background: #374151 !important;
-      box-shadow: none !important;
+      cursor: not-allowed;
+      transform: none;
+      background: #374151;
+      box-shadow: none;
     }
 
     .zero-widget-status {
@@ -318,13 +299,13 @@
 
   const TAG_REGEX = /(?:@|＠)(图\d+|音频\d+|视频\d+|镜头\d+|角色\d+|主体\d+|素材\d+)/g;
 
-  // 2. 检索页面顶部【已上传素材栏】(精准兼容含副标题的素材卡片如 "@图1 太极")
+  // 2. 检索页面顶部【已上传素材栏】
   function getOnlyUploadedAssets() {
     const availableTags = new Set();
-    const editor = getActiveEditor();
+    const editor = document.querySelector('[contenteditable="true"]') || document.querySelector('textarea');
     const widget = document.getElementById('zero-floating-widget');
 
-    const allElems = document.body.querySelectorAll('div, span, p, b, label, strong, a');
+    const allElems = document.body.querySelectorAll('div, span, p, b, label, strong');
 
     for (let i = 0; i < allElems.length; i++) {
       const el = allElems[i];
@@ -333,10 +314,10 @@
 
       if (el.children.length === 0 && el.innerText) {
         const text = el.innerText.trim();
-        if (text.length <= 30) {
-          const matches = Array.from(text.matchAll(/(?:@|＠)?(图\d+|音频\d+|视频\d+|镜头\d+|角色\d+|主体\d+|素材\d+)/g));
-          for (let k = 0; k < matches.length; k++) {
-            availableTags.add(matches[k][1]);
+        if (text.length <= 12) {
+          const m = /^(?:@|＠)?(图\d+|音频\d+|视频\d+|镜头\d+|角色\d+|主体\d+|素材\d+)$/.exec(text);
+          if (m) {
+            availableTags.add(m[1]);
           }
         }
       }
@@ -347,7 +328,7 @@
 
   // 3. 统计可转换标签及未上传标签
   function detectUnlinkedMentions() {
-    const editor = getActiveEditor();
+    const editor = document.querySelector('[contenteditable="true"]') || document.querySelector('textarea');
     const uploadedAssets = getOnlyUploadedAssets();
     const hasAssets = uploadedAssets.size > 0;
 
@@ -403,7 +384,6 @@
 
     const { totalUnlinked, validCount, invalidCount, hasAssets, uploadedAssets, missingTags } = detectUnlinkedMentions();
 
-    // 1. 展示已上传素材（绿色胶囊）
     if (assetsTagsEl) {
       if (uploadedAssets && uploadedAssets.size > 0) {
         const sorted = Array.from(uploadedAssets).sort((a, b) =>
@@ -415,7 +395,6 @@
       }
     }
 
-    // 2. 展示未上传素材（橙色警告胶囊）
     if (missingTagsBarEl && missingTagsWrapperEl) {
       if (missingTags && missingTags.size > 0) {
         missingTagsBarEl.style.display = 'flex';
@@ -430,16 +409,19 @@
       }
     }
 
-    // 3. 正常状态指示
     if (!hasAssets) {
       if (totalUnlinked > 0) {
         countValueEl.innerText = `未上传素材 (0/${totalUnlinked}可转换)`;
         countValueEl.className = 'zero-detection-value warn';
-        if (statusTextEl) statusTextEl.innerText = '⚠️ 页面未上传素材，无法关联';
+        if (statusTextEl && (!runBtn || !runBtn.disabled)) {
+          statusTextEl.innerText = '⚠️ 页面未上传素材，无法关联';
+        }
       } else {
         countValueEl.innerText = '无未关联标签';
         countValueEl.className = 'zero-detection-value empty';
-        if (statusTextEl) statusTextEl.innerText = '提示：请先在页面上传素材';
+        if (statusTextEl && (!runBtn || !runBtn.disabled)) {
+          statusTextEl.innerText = '提示：请先在页面上传素材';
+        }
       }
       return;
     }
@@ -451,109 +433,55 @@
         countValueEl.innerText += ` (${invalidCount}个未上传不替换)`;
         countValueEl.className = 'zero-detection-value warn';
       }
-      if (statusTextEl && runBtn && !runBtn.disabled) {
+      if (statusTextEl && (!runBtn || !runBtn.disabled)) {
         statusTextEl.innerText = `点击一键转换 ${validCount} 个有效标签`;
       }
     } else if (invalidCount > 0) {
       countValueEl.innerText = `0 可关联 (${invalidCount}个未上传不替换)`;
       countValueEl.className = 'zero-detection-value warn';
-      if (statusTextEl && runBtn && !runBtn.disabled) {
+      if (statusTextEl && (!runBtn || !runBtn.disabled)) {
         statusTextEl.innerText = '提示：未上传素材标签保留原样不替换';
       }
     } else {
       countValueEl.innerText = '0 个 (已全部关联)';
       countValueEl.className = 'zero-detection-value empty';
-      if (statusTextEl && runBtn && !runBtn.disabled) {
+      if (statusTextEl && (!runBtn || !runBtn.disabled)) {
         statusTextEl.innerText = '文本框暂无未关联标签';
       }
     }
   }
 
-  // 5. 全局按键与 DOM 候选点击确认引擎 (解决未按回车)
+  // 5. 模拟弹窗确认与 DOM 物理点击
   async function confirmCandidatePopover(editor, cleanTag) {
-    await sleep(80);
+    const evDown = new KeyboardEvent('keydown', { key: 'ArrowDown', code: 'ArrowDown', keyCode: 40, bubbles: true });
+    editor.dispatchEvent(evDown);
+    await sleep(15);
 
-    const active = document.activeElement || editor;
+    const evEnter = new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', keyCode: 13, bubbles: true });
+    editor.dispatchEvent(evEnter);
+    await sleep(15);
 
-    // 派发键盘事件辅助函数
-    function pressKey(target, keyName, codeNum) {
-      if (!target) return;
-      const init = {
-        key: keyName,
-        code: keyName,
-        keyCode: codeNum,
-        which: codeNum,
-        charCode: codeNum,
-        bubbles: true,
-        cancelable: true,
-        composed: true
-      };
-      target.dispatchEvent(new KeyboardEvent('keydown', init));
-      target.dispatchEvent(new KeyboardEvent('keypress', init));
-      target.dispatchEvent(new KeyboardEvent('keyup', init));
-    }
-
-    // 派发全套 Mouse & Pointer 物理点击辅助函数
-    function clickEl(el) {
-      if (!el) return;
-      const opts = { bubbles: true, cancelable: true };
-      el.dispatchEvent(new PointerEvent('pointerdown', opts));
-      el.dispatchEvent(new MouseEvent('mousedown', opts));
-      el.dispatchEvent(new MouseEvent('mouseup', opts));
-      el.dispatchEvent(new PointerEvent('pointerup', opts));
-      el.dispatchEvent(new MouseEvent('click', opts));
-      if (typeof el.click === 'function') {
-        try { el.click(); } catch (_) {}
-      }
-    }
-
-    // 策略 1：全方位检索所有 Popover / Floating / Dropdown 下拉层
-    const overlays = document.querySelectorAll(
-      '[class*="dropdown"], [class*="popover"], [class*="mention"], [class*="select"], [class*="portal"], [class*="listbox"], [class*="menu"], [class*="option"], [role="listbox"], [role="menu"], [role="option"], div[style*="position: absolute"], div[style*="position: fixed"]'
+    const dropdowns = document.querySelectorAll(
+      '[class*="dropdown"], [class*="popover"], [class*="mention"], [class*="select"], [role="listbox"]'
     );
-
-    let clickedAny = false;
-
-    for (let i = 0; i < overlays.length; i++) {
-      const container = overlays[i];
-      if (container.id === 'zero-floating-widget' || container.closest('#zero-floating-widget')) continue;
-
-      if (container.offsetWidth > 0 && container.offsetHeight > 0) {
-        const items = container.querySelectorAll('li, div, span, p, a, [role="option"]');
+    for (let i = 0; i < dropdowns.length; i++) {
+      const dd = dropdowns[i];
+      if (dd.offsetWidth > 0 && dd.offsetHeight > 0) {
+        const items = dd.querySelectorAll('li, div, span, p, [role="option"]');
         for (let j = 0; j < items.length; j++) {
           const item = items[j];
-          if (item.children.length <= 2 && item.innerText && item.innerText.includes(cleanTag)) {
-            clickEl(item);
-            clickedAny = true;
+          if (item.innerText && item.innerText.includes(cleanTag)) {
+            item.click();
+            return true;
           }
         }
-        if (!clickedAny) {
-          const activeOpt = container.querySelector('[class*="active"], [class*="selected"], [aria-selected="true"]');
-          if (activeOpt) {
-            clickEl(activeOpt);
-            clickedAny = true;
-          }
+        const active = dd.querySelector('[class*="active"], [class*="selected"], [aria-selected="true"]');
+        if (active) {
+          active.click();
+          return true;
         }
       }
     }
-
-    if (clickedAny) {
-      await sleep(80);
-      return true;
-    }
-
-    // 策略 2：全方位给 activeElement、editor、document、window 派发【下下箭头 + 回车 + Tab】三连击！
-    const targets = [active, editor, document.body, window];
-
-    for (let k = 0; k < targets.length; k++) {
-      const t = targets[k];
-      pressKey(t, 'ArrowDown', 40);
-      await sleep(25);
-      pressKey(t, 'Enter', 13);
-      pressKey(t, 'Tab', 9);
-    }
-
-    await sleep(80);
     return false;
   }
 
@@ -572,6 +500,7 @@
     if (!widget) {
       createFloatingWidget();
     } else {
+      // 保持 DOM 物理层级始终处于 document.body 的最后一位（避免被 React Modal Portal 遮挡）
       if (document.body.lastElementChild !== widget && document.body.lastElementChild !== minBadge) {
         document.body.appendChild(widget);
         if (minBadge) document.body.appendChild(minBadge);
@@ -655,7 +584,7 @@
     updateDetectionUI();
   }
 
-  // 7. 终极 DOM 重叠提升 + Window Capture 拖拽引擎
+  // 7. 终极 DOM 重叠提升 + Window Capture 拖拽引擎 (彻底击穿一切 React Modal 遮罩)
   function makeUltimateTopDraggable(elmnt, dragHandle) {
     let startX = 0, startY = 0, initialLeft = 0, initialTop = 0;
 
@@ -665,6 +594,7 @@
       e.preventDefault();
       e.stopPropagation();
 
+      // 核心突破 1：按下的瞬间，把面板强制重新 append 到 body 最后，使其渲染层级绝对处于顶峰！
       document.body.appendChild(elmnt);
 
       startX = e.clientX;
@@ -702,6 +632,7 @@
         window.removeEventListener('pointercancel', onPointerUp, true);
       };
 
+      // 核心突破 2：在全局 Window 对象的捕获阶段监听（true），拦截任何 Modal 遮罩层的事件干扰！
       window.addEventListener('pointermove', onPointerMove, true);
       window.addEventListener('pointerup', onPointerUp, true);
       window.addEventListener('pointercancel', onPointerUp, true);
@@ -717,6 +648,7 @@
       e.preventDefault();
       e.stopPropagation();
 
+      // 强制置顶
       document.body.appendChild(elmnt);
 
       isMoved = false;
@@ -756,8 +688,8 @@
           elmnt.releasePointerCapture(ev.pointerId);
         } catch (_) {}
         window.removeEventListener('pointermove', onPointerMove, true);
-        window.removeEventListener('pointerup', onPointerUp, { capture: true, once: true });
-        window.removeEventListener('pointercancel', onPointerUp, { capture: true, once: true });
+        window.removeEventListener('pointerup', onPointerUp, true);
+        window.removeEventListener('pointercancel', onPointerUp, true);
 
         if (!isMoved) {
           onClickCallback();
@@ -774,14 +706,8 @@
   async function runAutoMentionStream() {
     const runBtn = document.getElementById('zero-widget-action-btn');
     const statusText = document.getElementById('zero-widget-status');
+    const editor = document.querySelector('[contenteditable="true"]') || document.querySelector('textarea');
 
-    if (isVideoPreviewModalOpen()) {
-      showToast('ℹ️ 当前处于视频放大预览界面，请先关闭大图预览再关联！');
-      if (statusText) statusText.innerText = '⚠️ 大图预览中，已安全阻断点击';
-      return;
-    }
-
-    const editor = getActiveEditor();
     if (!editor) {
       showToast('❌ 未找到可编辑的提示词文本框！');
       return;
@@ -865,15 +791,14 @@
 
           editor.focus();
 
-          document.execCommand('insertText', false, '@');
-          await sleep(40);
+          document.execCommand('insertText', false, matchText.slice(0, -1));
+          await sleep(20);
 
-          document.execCommand('insertText', false, cleanTag);
-          await sleep(80);
+          document.execCommand('insertText', false, matchText.slice(-1));
+          await sleep(35);
 
-          // 全局双轮确认：全方位点击 DOM 浮动层 + 全局 Window/Document 派发 Enter/Tab
           await confirmCandidatePopover(editor, cleanTag);
-          await sleep(60);
+          await sleep(40);
 
           let postCheck = detectUnlinkedMentions();
           if (postCheck.validCount >= preValidCount) {
