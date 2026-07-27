@@ -47,7 +47,8 @@
 ## 🛠️ 安装与使用步骤
 
 ### 🚀 方式一：一键直连安装与自动更新 (最推荐)
-1. 确保浏览器已安装 [Tampermonkey (油猴) 扩展](https://chrome.google.com/webstore/detail/dhdgffkkebhmkfjojejmpbldmpobfkfo)。
+1. 确保浏览器已安装 Tampermonkey (油猴) 扩展：
+   - 官方扩展商店安装：[Edge 扩展商店](https://microsoftedge.microsoft.com/addons/detail/iikflimngbkmflgliblahdmobdkoocik) | [Chrome 扩展商店](https://chrome.google.com/webstore/detail/dhdgffkkebhmkfjojejmpbldmpobfkfo)
 2. 直接点击右侧安装直链：[👉 **点击一键安装 ZeroAIGen 智能关联脚本**](https://raw.githubusercontent.com/crazyzhang277/zeroaigen-auto-mention/master/zeroaigen-auto-mention.user.js)。
 3. 油猴会自动弹出安装界面，点击 **“安装”** 即可！
 4. **自动更新保障**：脚本已内置 `@updateURL` 与 `@downloadURL` 检查，后续仓库更新时油猴会自动静默升级到最新版。
