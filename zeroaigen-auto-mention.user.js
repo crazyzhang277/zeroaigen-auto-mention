@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         ZeroAIGen @主体标签一键关联工具(DOM顶层重叠与捕获拖拽破局版)
 // @namespace    http://tampermonkey.net/
-// @version      5.6.0
-// @description  在零一 AIGC 网页上采用 DOM 顶层动态提升与 Window Capture 捕获拖拽，彻底解决全屏 Modal 遮挡无法拖动问题，支持大图预览自动折叠与转换完成二次复查校验
+// @version      5.7.0
+// @description  在零一 AIGC 网页上采用 DOM 顶层动态提升与 Window Capture 捕获拖拽，彻底解决全屏 Modal 遮挡无法拖动问题，支持大图预览自动折叠与极速全量关联复查
 // @author       Antigravity
 // @match        *://aigc.zeroaigen.cn/*
 // @match        *://*.zeroaigen.cn/*
@@ -14,7 +14,7 @@
 (function () {
   'use strict';
 
-  console.log('[ZeroAIGen Floating Widget v5.6.0] 全量关联 + 二次复查校验终极版已加载！');
+  console.log('[ZeroAIGen Floating Widget v5.7.0] 极速双倍转换 + 全量复查校验版已加载！');
 
   // 0. 判断当前页面 URL 是否属于 type=VIDEO 模式
   function isVideoMode() {
@@ -478,11 +478,11 @@
   async function confirmCandidatePopover(editor, cleanTag) {
     const evDown = new KeyboardEvent('keydown', { key: 'ArrowDown', code: 'ArrowDown', keyCode: 40, bubbles: true });
     editor.dispatchEvent(evDown);
-    await sleep(15);
+    await sleep(8);
 
     const evEnter = new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', keyCode: 13, bubbles: true });
     editor.dispatchEvent(evEnter);
-    await sleep(15);
+    await sleep(8);
 
     const dropdowns = document.querySelectorAll(
       '[class*="dropdown"], [class*="popover"], [class*="mention"], [class*="select"], [role="listbox"]'
@@ -848,13 +848,13 @@
           editor.focus();
 
           document.execCommand('insertText', false, matchText.slice(0, -1));
-          await sleep(20);
+          await sleep(10);
 
           document.execCommand('insertText', false, matchText.slice(-1));
-          await sleep(35);
+          await sleep(18);
 
           await confirmCandidatePopover(editor, cleanTag);
-          await sleep(40);
+          await sleep(18);
 
           let postCheck = detectUnlinkedMentions();
           if (postCheck.validCount >= preValidCount) {
@@ -877,7 +877,7 @@
 
       if (retryCheck.validCount > 0) {
         if (statusText) statusText.innerText = `🔍 正在执行二次复查与遗漏关联 (剩余 ${retryCheck.validCount} 个)...`;
-        await sleep(100);
+        await sleep(50);
 
         let retrySkipIndex = 0;
         let retryProcessed = 0;
@@ -932,12 +932,12 @@
             editor.focus();
 
             document.execCommand('insertText', false, matchText.slice(0, -1));
-            await sleep(20);
+            await sleep(10);
             document.execCommand('insertText', false, matchText.slice(-1));
-            await sleep(35);
+            await sleep(18);
 
             await confirmCandidatePopover(editor, cleanTag);
-            await sleep(40);
+            await sleep(18);
 
             let postCheck = detectUnlinkedMentions();
             if (postCheck.validCount >= preCheck.validCount) {
