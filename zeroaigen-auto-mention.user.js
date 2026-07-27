@@ -1,8 +1,8 @@
 // ==UserScript==
-// @name         ZeroAIGen @主体标签一键关联工具(4.9纯净常驻与全捕获顺畅拖拽版)
+// @name         ZeroAIGen @主体标签一键关联工具(DOM顶层重叠与捕获拖拽破局版)
 // @namespace    http://tampermonkey.net/
-// @version      5.3.0
-// @description  在零一 AIGC 网页上(type=VIDEO)纯净常驻显示，采用 PointerCapture 解决拖拽卡顿，支持一键最小化
+// @version      5.4.0
+// @description  在零一 AIGC 网页上采用 DOM 顶层动态提升与 Window Capture 捕获拖拽，彻底解决全屏 Modal 遮挡无法拖动问题
 // @author       Antigravity
 // @match        *://aigc.zeroaigen.cn/*
 // @match        *://*.zeroaigen.cn/*
@@ -14,29 +14,31 @@
 (function () {
   'use strict';
 
-  console.log('[ZeroAIGen Floating Widget v5.3.0] 4.9纯净常驻与全捕获顺畅拖拽版已加载！');
+  console.log('[ZeroAIGen Floating Widget v5.4.0] DOM顶层重叠与捕获拖拽破局版已加载！');
 
   // 0. 判断当前页面 URL 是否属于 type=VIDEO 模式
   function isVideoMode() {
     return /[?&]type=VIDEO\b/i.test(window.location.href);
   }
 
-  // 1. CSS 样式 (z-index 提升至 99999999 最高层)
+  // 1. CSS 样式 (使用 isolation: isolate 与 pointer-events: auto 强制置顶)
   const style = `
     #zero-floating-widget {
       position: fixed;
       top: 120px;
       right: 40px;
       width: 295px;
-      background: rgba(17, 24, 39, 0.94);
-      backdrop-filter: blur(14px);
-      -webkit-backdrop-filter: blur(14px);
-      border: 1px solid rgba(16, 185, 129, 0.45);
-      border-radius: 14px;
-      box-shadow: 0 12px 36px rgba(0, 0, 0, 0.55);
-      color: #f3f4f6;
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-      z-index: 99999999;
+      background: rgba(17, 24, 39, 0.95) !important;
+      backdrop-filter: blur(16px) !important;
+      -webkit-backdrop-filter: blur(16px) !important;
+      border: 1px solid rgba(16, 185, 129, 0.5) !important;
+      border-radius: 14px !important;
+      box-shadow: 0 16px 40px rgba(0, 0, 0, 0.65) !important;
+      color: #f3f4f6 !important;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif !important;
+      z-index: 2147483647 !important;
+      isolation: isolate !important;
+      pointer-events: auto !important;
       user-select: none;
       overflow: hidden;
       transition: box-shadow 0.2s ease;
@@ -44,17 +46,19 @@
     }
 
     #zero-floating-widget:hover {
-      box-shadow: 0 16px 44px rgba(16, 185, 129, 0.3);
+      box-shadow: 0 20px 48px rgba(16, 185, 129, 0.35) !important;
     }
 
     .zero-widget-header {
       padding: 10px 14px;
-      background: rgba(31, 41, 55, 0.8);
+      background: rgba(31, 41, 55, 0.85);
       border-bottom: 1px solid rgba(255, 255, 255, 0.08);
       cursor: grab;
       display: flex;
       align-items: center;
       justify-content: space-between;
+      touch-action: none;
+      pointer-events: auto !important;
     }
 
     .zero-widget-header:active {
@@ -74,6 +78,7 @@
     .zero-widget-controls {
       display: flex;
       gap: 6px;
+      pointer-events: auto !important;
     }
 
     .zero-widget-btn-icon {
@@ -86,6 +91,7 @@
       padding: 2px 4px;
       border-radius: 4px;
       transition: all 0.2s;
+      pointer-events: auto !important;
     }
 
     .zero-widget-btn-icon:hover {
@@ -148,7 +154,6 @@
       margin-top: 2px;
     }
 
-    /* 已上传素材绿胶囊 */
     .zero-asset-pill {
       background: rgba(16, 185, 129, 0.18);
       border: 1px solid rgba(16, 185, 129, 0.45);
@@ -160,7 +165,6 @@
       letter-spacing: 0.2px;
     }
 
-    /* 未上传素材橙胶囊 */
     .zero-missing-pill {
       background: rgba(245, 158, 11, 0.18);
       border: 1px solid rgba(245, 158, 11, 0.45);
@@ -231,8 +235,10 @@
       justify-content: center;
       font-size: 22px;
       cursor: grab;
-      box-shadow: 0 6px 22px rgba(16, 185, 129, 0.5);
-      z-index: 99999999;
+      box-shadow: 0 6px 22px rgba(16, 185, 129, 0.5) !important;
+      z-index: 2147483647 !important;
+      isolation: isolate !important;
+      pointer-events: auto !important;
       user-select: none;
       transition: transform 0.15s ease, box-shadow 0.2s ease;
       touch-action: none;
@@ -244,7 +250,7 @@
 
     #zero-minimized-badge:hover {
       transform: scale(1.12);
-      box-shadow: 0 8px 28px rgba(16, 185, 129, 0.7);
+      box-shadow: 0 8px 28px rgba(16, 185, 129, 0.7) !important;
     }
 
     .zero-mention-toast {
@@ -259,7 +265,7 @@
       font-size: 14px;
       font-weight: 600;
       box-shadow: 0 10px 25px rgba(0,0,0,0.5);
-      z-index: 999999999;
+      z-index: 2147483647 !important;
       animation: zeroToastFade 3s forwards;
     }
 
@@ -479,7 +485,7 @@
     return false;
   }
 
-  // 6. UI 面板创建与 type=VIDEO 模式纯净管控（4.9 基线：绝对不在常驻页面误闪隐）
+  // 6. UI 面板创建与 type=VIDEO 模式纯净管控
   function checkModeAndUpdateUI() {
     const widget = document.getElementById('zero-floating-widget');
     const minBadge = document.getElementById('zero-minimized-badge');
@@ -494,6 +500,12 @@
     if (!widget) {
       createFloatingWidget();
     } else {
+      // 保持 DOM 物理层级始终处于 document.body 的最后一位（避免被 React Modal Portal 遮挡）
+      if (document.body.lastElementChild !== widget && document.body.lastElementChild !== minBadge) {
+        document.body.appendChild(widget);
+        if (minBadge) document.body.appendChild(minBadge);
+      }
+
       if (minBadge && minBadge.style.display === 'flex') {
         widget.style.display = 'none';
       } else {
@@ -561,9 +573,9 @@
       minBadge.style.display = 'flex';
     };
 
-    makePointerCaptureDraggable(widget, document.getElementById('zero-widget-drag-handle'));
+    makeUltimateTopDraggable(widget, document.getElementById('zero-widget-drag-handle'));
 
-    makePointerCaptureDraggableBadge(minBadge, () => {
+    makeUltimateTopDraggableBadge(minBadge, () => {
       minBadge.style.display = 'none';
       widget.style.display = 'block';
       updateDetectionUI();
@@ -572,8 +584,8 @@
     updateDetectionUI();
   }
 
-  // 7. PointerCapture 顶级捕获拖拽引擎 (解决 4.9 拖拽脱手卡住的核心)
-  function makePointerCaptureDraggable(elmnt, dragHandle) {
+  // 7. 终极 DOM 重叠提升 + Window Capture 拖拽引擎 (彻底击穿一切 React Modal 遮罩)
+  function makeUltimateTopDraggable(elmnt, dragHandle) {
     let startX = 0, startY = 0, initialLeft = 0, initialTop = 0;
 
     dragHandle.addEventListener('pointerdown', (e) => {
@@ -581,6 +593,9 @@
 
       e.preventDefault();
       e.stopPropagation();
+
+      // 核心突破 1：按下的瞬间，把面板强制重新 append 到 body 最后，使其渲染层级绝对处于顶峰！
+      document.body.appendChild(elmnt);
 
       startX = e.clientX;
       startY = e.clientY;
@@ -612,25 +627,29 @@
         try {
           dragHandle.releasePointerCapture(ev.pointerId);
         } catch (_) {}
-        dragHandle.removeEventListener('pointermove', onPointerMove);
-        dragHandle.removeEventListener('pointerup', onPointerUp);
-        dragHandle.removeEventListener('pointercancel', onPointerUp);
+        window.removeEventListener('pointermove', onPointerMove, true);
+        window.removeEventListener('pointerup', onPointerUp, true);
+        window.removeEventListener('pointercancel', onPointerUp, true);
       };
 
-      dragHandle.addEventListener('pointermove', onPointerMove, { passive: false });
-      dragHandle.addEventListener('pointerup', onPointerUp, { passive: false });
-      dragHandle.addEventListener('pointercancel', onPointerUp, { passive: false });
-    }, { passive: false });
+      // 核心突破 2：在全局 Window 对象的捕获阶段监听（true），拦截任何 Modal 遮罩层的事件干扰！
+      window.addEventListener('pointermove', onPointerMove, true);
+      window.addEventListener('pointerup', onPointerUp, true);
+      window.addEventListener('pointercancel', onPointerUp, true);
+    }, true);
   }
 
-  // 8. 收起后球形按钮的 PointerCapture 顺畅拖拽 + 点击判定
-  function makePointerCaptureDraggableBadge(elmnt, onClickCallback) {
+  // 8. 收起球形按钮的终极 DOM 重叠提升 + Window Capture 拖拽引擎
+  function makeUltimateTopDraggableBadge(elmnt, onClickCallback) {
     let startX = 0, startY = 0, initialLeft = 0, initialTop = 0;
     let isMoved = false;
 
     elmnt.addEventListener('pointerdown', (e) => {
       e.preventDefault();
       e.stopPropagation();
+
+      // 强制置顶
+      document.body.appendChild(elmnt);
 
       isMoved = false;
       startX = e.clientX;
@@ -668,19 +687,19 @@
         try {
           elmnt.releasePointerCapture(ev.pointerId);
         } catch (_) {}
-        elmnt.removeEventListener('pointermove', onPointerMove);
-        elmnt.removeEventListener('pointerup', onPointerUp);
-        elmnt.removeEventListener('pointercancel', onPointerUp);
+        window.removeEventListener('pointermove', onPointerMove, true);
+        window.removeEventListener('pointerup', onPointerUp, true);
+        window.removeEventListener('pointercancel', onPointerUp, true);
 
         if (!isMoved) {
           onClickCallback();
         }
       };
 
-      elmnt.addEventListener('pointermove', onPointerMove, { passive: false });
-      elmnt.addEventListener('pointerup', onPointerUp, { passive: false });
-      elmnt.addEventListener('pointercancel', onPointerUp, { passive: false });
-    }, { passive: false });
+      window.addEventListener('pointermove', onPointerMove, true);
+      window.addEventListener('pointerup', onPointerUp, { capture: true, once: true });
+      window.addEventListener('pointercancel', onPointerUp, { capture: true, once: true });
+    }, true);
   }
 
   // 9. 一键全量转换
@@ -816,6 +835,6 @@
     }
   }
 
-  // 1 秒轮询，保持在 type=VIDEO 页面纯净稳定常驻
+  // 1 秒轮询
   setInterval(checkModeAndUpdateUI, 1000);
 })();
